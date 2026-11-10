@@ -45,3 +45,13 @@ test('les exports CSV échappent guillemets et neutralisent les formules dans le
   assert.ok(csv.includes('"a;""b"""'));assert.ok(csv.includes('"-2"'));
   assert.ok(csv.includes('"\'=1+1"'));assert.ok(csv.includes('"\'\n=1"'));
 });
+test('plusieurs choix dans un filtre se combinent avec les autres critères',()=>{
+ const rows=[{id:1,Atelier_organisateur:1,Type_d_activite:'Prestation',Etat_de_l_action:'À venir'},{id:2,Atelier_organisateur:2,Type_d_activite:'Action interne',Etat_de_l_action:'Réalisé'},{id:3,Atelier_organisateur:3,Type_d_activite:'Prestation',Etat_de_l_action:'À venir'}];
+ assert.deepEqual(M.filter(rows,{workshop:'1|2',type:'Prestation|Action interne',status:'À venir'}).map(r=>r.id),[1]);
+});
+test('les bornes de période sont inclusives et excluent les dates absentes',()=>{
+ const d=Date.UTC(2026,8,1)/1000,e=Date.UTC(2026,9,31)/1000;
+ const rows=[{id:1,Date_prevue:d},{id:2,Date_prevue:e},{id:3,Date_prevue:e+86400},{id:4}];
+ assert.deepEqual(M.filter(rows,{fromDate:d,toDate:e}).map(r=>r.id),[1,2]);
+ assert.deepEqual(M.filter(rows,{fromDate:d,toDate:e,month:'9'}).map(r=>r.id),[1]);
+});

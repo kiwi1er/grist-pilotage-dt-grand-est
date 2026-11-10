@@ -53,3 +53,9 @@ Vérifications : node --test tests/model.cjs ; node --check dist/app.js ; node -
 9. Aucun taux d’occupation, temps de préparation, coût complet ou rentabilité inventé.
 10. Identifiants Noticia facultatifs pour les seules formations PDFC-PrAF ; aucune lecture des tables d’import Noticia.
 
+
+## v0.2 — revue de la vue d’ensemble
+Logo fourni, filtres multiples (ateliers, types, états), mois et périodes lues depuis PERIODES, aides sur les indicateurs et les relances.
+Dans Grist, lecture automatique à l’ouverture, lors des événements de la table sélectionnée, au retour sur la page et toutes les 30 secondes lorsque la page est visible. Le rafraîchissement périodique est différé pendant l’utilisation des filtres ouverts ou d’une fiche. Il ne s’agit pas d’une garantie de synchronisation instantanée. Une heure de dernière actualisation est affichée.
+Les différents filtres se combinent ; aucun choix d’atelier/type/état signifie tous. Un filtre de date exclut les activités sans date. Les périodes utilisent leurs bornes, et non uniquement le champ Periode de l’activité.
+Le chantier des exports doit être repris à la fin de la revue des écrans : destinataires, contenu, regroupements et formats.

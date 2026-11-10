@@ -11,13 +11,16 @@
   }
   const activityDate=a=>date(a.Type_d_activite==='Démarchage'?a.Date_contact:a.Date_prevue);
   const year=a=>activityDate(a)?.getUTCFullYear()??null;
+  const matches=(value,selected)=>!selected||String(selected).split("|").includes(String(value));
   function filter(rows,f){
     return rows.filter(a=>(!f.year||String(year(a))===String(f.year))
-      &&(!f.workshop||String(a.Atelier_organisateur)===String(f.workshop))
-      &&(!f.type||a.Type_d_activite===f.type)
-      &&(!f.status||a.Etat_de_l_action===f.status)
+      &&matches(a.Atelier_organisateur,f.workshop)
+      &&matches(a.Type_d_activite,f.type)
+      &&matches(a.Etat_de_l_action,f.status)
       &&(!f.theme||String(a.Thematique)===String(f.theme))
       &&(!f.month||(activityDate(a)&&String(activityDate(a).getUTCMonth()+1)===String(f.month)))
+      &&(!f.fromDate||(activityDate(a)&&activityDate(a)>=date(f.fromDate)))
+      &&(!f.toDate||(activityDate(a)&&activityDate(a)<=date(f.toDate)))
       &&(!f.alerts||a.Relance_COQ_a_prevoir||a.Etat_de_l_action==='À relancer'));
   }
   function summary(rows){
@@ -55,7 +58,7 @@
     };
     return '\uFEFF'+[columns.map(c=>cell(c.label)).join(';'),...rows.map(r=>columns.map(c=>cell(c.value(r))).join(';'))].join('\r\n');
   }
-  const model={list,number,sum,date,activityDate,year,filter,summary,group,csv};
+  const model={matches,list,number,sum,date,activityDate,year,filter,summary,group,csv};
   if(typeof module!=='undefined'&&module.exports)module.exports=model;
   root.PilotageModel=model;
 })(typeof globalThis!=='undefined'?globalThis:this);

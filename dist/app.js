@@ -11,7 +11,7 @@
   const colors=['#187d73','#d7b870','#658bb5','#a4bda0','#c27e54','#ad777c','#a1aaa5'];
   const statusColors={'À venir':'#658bb5','En cours':'#187d73','Réalisé':'#8eb498','Reporté':'#d7b870','Annulé':'#b7bdb9','À relancer':'#c27e54'};
   const definitions={
-    overview:{label:'Vue d’ensemble',title:'Une vision commune de l’activité.',description:'Les repères essentiels pour comprendre la programmation et orienter les décisions.',icon:'grid'},
+    overview:{label:'Vue d’ensemble',title:'Une vision commune de l’activité.',description:'',icon:'grid'},
     workshops:{label:'Ateliers & programmation',title:'Comprendre les équilibres entre ateliers.',description:'Volumes programmés, répartition dans le temps et personnes mobilisées.',icon:'calendar'},
     partners:{label:'Partenariats',title:'Lire les relations qui se construisent.',description:'Identifier les partenaires mobilisés et les pistes de développement territorial.',icon:'network'},
     themes:{label:'Thématiques & publics',title:'Explorer les sujets et les publics.',description:'Croiser les thématiques, les ateliers et les publics accompagnés.',icon:'layers'},
@@ -20,17 +20,17 @@
   const paths={grid:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',calendar:'M4 5h16v16H4z M4 10h16 M8 3v4 M16 3v4 M8 14h2 M14 14h2 M8 17h2',network:'M9 5a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M2 18a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M16 18a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M10 8L6 15 M14 8l4 7',layers:'M3 7l9-5 9 5-9 5z M3 12l9 5 9-5 M3 17l9 5 9-5',list:'M8 6h13 M8 12h13 M8 18h13 M3 6h1 M3 12h1 M3 18h1'};
   const icon=name=>'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+paths[name]+'"/></svg>';
   let tables={},lookups={},loaded=false,source='demo',snapshotAt=null,live=false;
-  let state={view:'overview',year:'',workshop:'',type:'',status:'',theme:'',month:'',alerts:'',search:'',sort:'date',page:1,metric:'hours',planningYear:String(new Date().getFullYear())};
+  let state={view:'overview',year:'',workshop:'',type:'',status:'',theme:'',month:'',period:'',alerts:'',search:'',sort:'date',page:1,metric:'hours',overviewMetric:'count',planningYear:String(new Date().getFullYear())};
   let lastFocus=null;
   const readRoute=()=>{
     const p=new URLSearchParams(location.hash.slice(1));
-    ['view','year','workshop','type','status','theme','month','alerts','search'].forEach(k=>state[k]=p.get(k)||'');
+    ['view','year','workshop','type','status','theme','month','period','alerts','search'].forEach(k=>state[k]=p.get(k)||'');
     if(!definitions[state.view])state.view='overview';
   };
   readRoute();
   function writeRoute(){
     const p=new URLSearchParams();
-    ['view','year','workshop','type','status','theme','month','alerts','search'].forEach(k=>{if(state[k])p.set(k,state[k])});
+    ['view','year','workshop','type','status','theme','month','period','alerts','search'].forEach(k=>{if(state[k])p.set(k,state[k])});
     history.replaceState(null,'','#'+p.toString());
   }
   const name=(table,id,fallback='Non renseigné')=>{
@@ -39,7 +39,7 @@
   };
   const workshopName=id=>name('ATELIERS',id);
   const workshopShort=id=>lookups.ATELIERS?.get(Number(id))?.Code||'Sans atelier';
-  const rows=()=>M.filter(tables.ACTIVITES||[],state);
+  const rows=()=>{const period=lookups.PERIODES?.get(Number(state.period));return M.filter(tables.ACTIVITES||[],{...state,fromDate:period?.Date_debut,toDate:period?.Date_fin})};
   function installData(data){
     tables=data.tables;
     Object.keys(tables).forEach(t=>lookups[t]=new Map(tables[t].map(r=>[r.id,r])));
@@ -48,6 +48,10 @@
     populateFilters();render();
   }
   function setOptions(id,options,selected,placeholder){
+    if(['filter-workshop','filter-type','filter-status'].includes(id)){
+      const key=id.slice(7), chosen=selected?selected.split('|'):[];
+      $(id).innerHTML='<details class="multi-filter"><summary>'+(chosen.length?chosen.length+' sélection(s)':esc(placeholder))+'</summary><div class="multi-options"><button type="button" data-filter-clear="'+key+'" class="text-button">Tous / effacer la sélection</button>'+options.map(o=>'<label><input type="checkbox" data-multi="'+key+'" value="'+esc(o.value)+'" '+(chosen.includes(String(o.value))?'checked':'')+'>'+esc(o.label)+'</label>').join('')+'<small>Plusieurs choix possibles. Aucun choix : tous.</small></div></details>';return;
+    }
     $(id).innerHTML='<option value="">'+placeholder+'</option>'+options.map(o=>'<option value="'+esc(o.value)+'">'+esc(o.label)+'</option>').join('');
     $(id).value=selected;
   }
@@ -58,10 +62,12 @@
     setOptions('filter-year',years.map(y=>({value:y,label:y+' · année civile'})),state.year,'Toutes les années');
     setOptions('filter-workshop',(tables.ATELIERS||[]).map(a=>({value:a.id,label:a.Libelle||a.Code})),state.workshop,'Tous les ateliers');
     setOptions('filter-type',types.map(t=>({value:t,label:t})),state.type,'Tous les types');
+    setOptions('filter-month',months.map((m,i)=>({value:i+1,label:m})),state.month,'Tous les mois');
+    setOptions('filter-period',(tables.PERIODES||[]).map(p=>({value:p.id,label:p.Code+' · '+date(p.Date_debut)+' — '+date(p.Date_fin)})),state.period,'Toutes les périodes');
     const states=[...new Set((tables.ACTIVITES||[]).map(a=>a.Etat_de_l_action).filter(Boolean))];
     setOptions('filter-status',states.map(s=>({value:s,label:s})),state.status,'Tous les états');
   }
-  const kpi=(label,value,unit,note,dark=false)=>'<div class="kpi '+(dark?'dark':'')+'"><div class="kpi-label">'+esc(label)+'<span class="kpi-icon" aria-hidden="true">↗</span></div><div class="kpi-value">'+esc(value)+(unit?'<span class="kpi-unit">'+esc(unit)+'</span>':'')+'</div><div class="kpi-note">'+note+'</div></div>';
+  const kpi=(label,value,unit,note,dark=false)=>'<div class="kpi '+(dark?'dark':'')+'"><div class="kpi-label">'+esc(label)+'</div><div class="kpi-value">'+esc(value)+(unit?'<span class="kpi-unit">'+esc(unit)+'</span>':'')+'</div><div class="kpi-note">'+note+'</div></div>';
   const panel=(title,subtitle,body,extra='',foot='')=>'<section class="panel"><div class="panel-head"><div><h2>'+title+'</h2><p>'+subtitle+'</p></div>'+extra+'</div><div class="panel-body">'+body+'</div>'+(foot?'<div class="panel-foot">'+foot+'</div>':'')+'</section>';
   const legend=()=>'<div class="legend">'+types.map((t,i)=>'<span><i class="dot" style="background:'+colors[i]+'"></i>'+esc(t)+'</span>').join('')+'</div>';
   const badge=s=>'<span class="badge '+(s==='Réalisé'?'done':s==='À venir'||s==='En cours'?'planned':s==='Annulé'?'cancelled':s==='À relancer'||s==='Reporté'?'late':'')+'">'+esc(s||'Sans état')+'</span>';
@@ -88,20 +94,22 @@
     const groups=M.group(data,'Etat_de_l_action').sort((a,b)=>b.total-a.total);
     let cursor=0;
     const gradient=groups.map(g=>{const start=cursor;cursor+=g.total/Math.max(1,s.total)*100;return (statusColors[g.key]||colors[6])+' '+start+'% '+cursor+'%'}).join(',')||'#edf2e9 0% 100%';
-    const donut='<div class="donut-wrap"><div class="donut" style="background:conic-gradient('+gradient+')" role="img" aria-label="'+s.done+' activités réalisées sur '+s.total+'"><div class="donut-label"><strong>'+percent(s.done,s.total)+'</strong><span>réalisées</span></div></div><div class="donut-key">'+groups.map(g=>'<div><i class="dot" style="background:'+(statusColors[g.key]||colors[6])+'"></i><span>'+esc(g.key||'Sans état')+'</span><b>'+g.total+'</b></div>').join('')+'</div></div>';
+    const donut='<div class="donut-wrap"><div class="donut" style="background:conic-gradient('+gradient+')" role="img" aria-label="'+s.done+' activités réalisées sur '+s.total+'"><div class="donut-label"><strong>'+percent(s.done,s.total)+'</strong><span>'+s.done+' sur '+s.total+' réalisées</span></div></div><div class="donut-key">'+groups.map(g=>'<div><i class="dot" style="background:'+(statusColors[g.key]||colors[6])+'"></i><span>'+esc(g.key||'Sans état')+'</span><b>'+g.total+'</b></div>').join('')+'</div></div>';
     const top=M.group(data.filter(a=>a.Thematique),'Thematique').sort((a,b)=>b.total-a.total).slice(0,5);
     const alerts=data.filter(a=>a.Relance_COQ_a_prevoir||a.Etat_de_l_action==='À relancer');
-    const alertTable=alerts.length?'<div class="table-wrap"><table><thead><tr><th>Activité à suivre</th><th>Atelier</th><th>Référent</th><th>Point de vigilance</th></tr></thead><tbody>'+alerts.slice(0,5).map(a=>'<tr><td><button class="activity-title" data-activity="'+a.id+'">'+esc(a.Titre_de_l_action||'Sans intitulé')+'</button><span class="sub">'+esc(a.Identifiant_activite)+'</span></td><td>'+esc(workshopShort(a.Atelier_organisateur))+'</td><td>'+esc(name('COLLABORATEURS',a.Referent_de_l_action))+'</td><td>'+badge(a.Relance_COQ_a_prevoir?'Relance COQ':a.Etat_de_l_action)+'</td></tr>').join('')+'</tbody></table></div>':empty('Aucune relance signalée','Les indicateurs reflètent uniquement les informations renseignées dans Grist.');
-    return '<div class="kpis">'+kpi('Activités enregistrées',fmt(s.total),'','<span class="pill">'+s.active+' en suivi</span>hors réalisées et annulées',true)+kpi('Heures d’activité prévues',fmt(s.plannedHours,1),'h',s.missingPlannedDuration+' durée(s) manquante(s) · hors annulées')+kpi('Activités réalisées',fmt(s.done),'',percent(s.done,s.total)+' des activités sélectionnées')+kpi('Participations réalisées',s.participantsCount?fmt(s.participants):'—','',s.participantsCount+'/'+s.done+' activités réalisées avec effectif')+'</div>'+
-      '<div class="grid-two">'+panel('L’activité, atelier par atelier','Nombre d’activités · cliquer sur un atelier pour explorer',legend()+workshopBars(data),'<a class="text-button" href="#view=workshops">Explorer ↗</a>','Attribution à l’atelier organisateur : chaque activité est comptée une seule fois.')+panel('Où en est la programmation ?','Répartition selon l’état renseigné',donut+'<div class="callout">'+(s.alerts?'<strong>'+s.alerts+' activité(s) à relancer.</strong> Consulter les dossiers à suivre ci-dessous.':'Les états permettent de suivre l’avancement de la programmation.')+'</div>')+'</div>'+
+    const alertTable=alerts.length?'<div class="table-wrap"><table><thead><tr><th>Activité à suivre</th><th>Atelier</th><th>Référent</th><th>Motif de présence</th></tr></thead><tbody>'+alerts.slice(0,5).map(a=>'<tr><td><button class="activity-title" data-activity="'+a.id+'">'+esc(a.Titre_de_l_action||'Sans intitulé')+'</button><span class="sub">'+esc(a.Identifiant_activite)+'</span></td><td>'+esc(workshopShort(a.Atelier_organisateur))+'</td><td>'+esc(name('COLLABORATEURS',a.Referent_de_l_action))+'</td><td>'+[a.Etat_de_l_action==='À relancer'?badge('État : À relancer'):'',a.Relance_COQ_a_prevoir?badge('Échéance COQ atteinte'):''].filter(Boolean).join(' ')+'</td></tr>').join('')+'</tbody></table></div>':empty('Aucune relance signalée','Les indicateurs reflètent uniquement les informations renseignées dans Grist.');
+    const durationNote=s.missingPlannedDuration?'Total incomplet : '+s.missingPlannedDuration+' activité(s) sans durée prévue.':'Durées prévues renseignées pour toutes les activités non annulées.';
+    const chartControls='<div class="inline-controls"><select id="overview-metric" aria-label="Mesure de comparaison des ateliers"><option value="count" '+(state.overviewMetric==='count'?'selected':'')+'>Nombre d’activités</option><option value="hours" '+(state.overviewMetric==='hours'?'selected':'')+'>Heures prévues</option></select><a class="text-button" href="#view=workshops">Explorer ↗</a></div>';
+    return '<div class="kpis">'+kpi('Activités enregistrées',fmt(s.total),'','<span class="pill">'+s.active+' en suivi</span>hors réalisées et annulées',true)+kpi('Heures d’activité prévues',fmt(s.plannedHours,1),'h',esc(durationNote)+' <button class="text-button" data-explain="hours">Comprendre ce total</button>')+kpi('Activités réalisées',fmt(s.done),'',s.done+' sur '+s.total+' activités ('+percent(s.done,s.total)+'). <button class="text-button" data-explain="progress">Comment le lire ?</button>')+kpi('Participations réalisées',s.participantsCount?fmt(s.participants):'—','',s.participantsCount+'/'+s.done+' activités réalisées avec effectif')+'</div>'+
+      '<div class="grid-two">'+panel('L’activité, atelier par atelier',(state.overviewMetric==='hours'?'Heures prévues · hors activités annulées':'Nombre d’activités')+' · cliquer sur un atelier pour explorer',legend()+workshopBars(data,state.overviewMetric),chartControls,'Attribution à l’atelier organisateur : chaque activité est comptée une seule fois. Les durées ne mesurent pas la charge de travail complète.')+panel('Où en est la programmation ?','Répartition selon l’état renseigné',donut+'<button class="text-button" data-explain="progress">Comprendre la part réalisée</button><div class="callout">'+(s.alerts?'<strong>'+s.alerts+' activité(s) à relancer.</strong> Consulter les dossiers à suivre ci-dessous.':'Les états permettent de suivre l’avancement de la programmation.')+'</div>')+'</div>'+
       '<div class="grid-equal">'+panel('Les thématiques les plus présentes','Nombre d’activités avec une thématique renseignée',basicBars(top.map(g=>({label:name('THEMATIQUES',g.key),value:g.total}))),'<a href="#view=themes" class="text-button">Tout voir ↗</a>',s.withoutTheme+' activité(s) sans thématique.')+panel('La qualité des informations','Repérer ce qui reste à compléter','<div class="quality-grid"><div class="quality-card"><strong>'+s.undated+'</strong>sans date</div><div class="quality-card"><strong>'+s.withoutTheme+'</strong>sans thématique</div><div class="quality-card"><strong>'+s.missingPlannedDuration+'</strong>sans durée prévue</div><div class="quality-card"><strong>'+s.withoutPartner+'</strong>sans partenaire associé</div><div class="quality-card"><strong>'+s.partners+'</strong>partenaire(s) distinct(s)</div><div class="quality-card"><strong>'+fmt(s.actualHours,1)+' h</strong>réalisées et renseignées</div></div>','','L’absence de partenaire peut être normale, notamment pour une action interne.')+'</div>'+
-      '<section class="panel"><div class="panel-head"><div><h2>Les dossiers qui appellent une attention</h2><p>Relances explicites et échéances COQ · '+alerts.length+' activité(s)</p></div><button class="text-button" data-alerts>Ouvrir la liste ↗</button></div>'+alertTable+'</section>';
+      '<section class="panel"><div class="panel-head"><div><h2>Les activités à relancer</h2><p>État « À relancer » ou indicateur COQ actif · '+alerts.length+' activité(s)</p><button class="text-button" data-explain="alerts">Quels sont les critères ?</button></div><button class="text-button" data-alerts>Ouvrir la liste ↗</button></div>'+alertTable+'</section>';
   }
   function workshops(data){
     const s=M.summary(data);
     const planningYear=Number(state.year||state.planningYear);
     const planningRows=data.filter(a=>M.year(a)===planningYear);
-    const workshops=(tables.ATELIERS||[]).filter(w=>!state.workshop||String(w.id)===state.workshop);
+    const workshops=(tables.ATELIERS||[]).filter(w=>M.matches(w.id,state.workshop));
     const cells=workshops.map(w=>({w,months:months.map((_,i)=>{const rs=planningRows.filter(a=>a.Atelier_organisateur===w.id&&M.activityDate(a)?.getUTCMonth()===i);return {rows:rs,value:state.metric==='hours'?M.summary(rs).plannedHours:rs.length}})}));
     const max=Math.max(1,...cells.flatMap(c=>c.months.map(m=>m.value)));
     const planning='<div class="table-wrap"><table class="planning"><thead><tr><th>Atelier organisateur</th>'+months.map(m=>'<th>'+m+'</th>').join('')+'</tr></thead><tbody>'+cells.map(c=>'<tr><td><strong>'+esc(c.w.Code)+'</strong><span class="sub">'+esc(c.w.Libelle)+'</span></td>'+c.months.map((m,i)=>'<td><button class="heat" data-month="'+(i+1)+'" data-planning-workshop="'+c.w.id+'" data-planning-year="'+planningYear+'" style="background:rgba(24,125,115,'+(m.value?(.08+m.value/max*.55):.025)+');color:'+(m.value/max>.7?'white':'#17323a')+'" aria-label="'+esc(c.w.Code)+' · '+months[i]+' '+planningYear+' : '+fmt(m.value,1)+(state.metric==='hours'?' heures prévues':' activités')+'">'+(m.value?fmt(m.value,1):'·')+'<small>'+(m.value?(state.metric==='hours'?'h prévues':'activité(s)'):'')+'</small></button></td>').join('')+'</tr>').join('')+'</tbody></table></div>';
@@ -124,7 +132,7 @@
     const bars=[...categories].map(([label,ids])=>({label,value:ids.size})).sort((a,b)=>b.value-a.value);
     const partnerTable=used.length?'<div class="table-wrap"><table><thead><tr><th>Partenaire</th><th>Catégorie</th><th>Territoire déclaré</th><th>Ateliers organisateurs</th><th class="num">Activités</th></tr></thead><tbody>'+used.map(p=>{const rs=data.filter(a=>M.list(a.Partenaires).includes(p.id));return '<tr><td><strong>'+esc(p.Nom_partenaire)+'</strong></td><td>'+esc(p.Categorie||'À renseigner')+'</td><td>'+esc(p.Territoire||'—')+'</td><td>'+esc([...new Set(rs.map(a=>workshopShort(a.Atelier_organisateur)))].join(', '))+'</td><td class="num">'+rs.length+'</td></tr>'}).join('')+'</tbody></table></div>':empty('Le référentiel reste à alimenter','Associer les partenaires aux activités permettra de lire les relations territoriales.');
     const categoriesAll=[...new Set(used.map(p=>p.Categorie||'À catégoriser'))];
-    const workshopTable=categoriesAll.length?'<div class="table-wrap"><table><thead><tr><th>Atelier</th>'+categoriesAll.map(c=>'<th class="num">'+esc(c)+'</th>').join('')+'</tr></thead><tbody>'+(tables.ATELIERS||[]).filter(w=>!state.workshop||String(w.id)===state.workshop).map(w=>'<tr><td>'+esc(w.Code)+'</td>'+categoriesAll.map(c=>{const partnerIds=used.filter(p=>(p.Categorie||'À catégoriser')===c).map(p=>p.id);const n=data.filter(a=>a.Atelier_organisateur===w.id&&M.list(a.Partenaires).some(id=>partnerIds.includes(id))).length;return '<td class="num">'+(n||'—')+'</td>'}).join('')+'</tr>').join('')+'</tbody></table></div>':'<div class="chart-empty">Aucune catégorie renseignée.</div>';
+    const workshopTable=categoriesAll.length?'<div class="table-wrap"><table><thead><tr><th>Atelier</th>'+categoriesAll.map(c=>'<th class="num">'+esc(c)+'</th>').join('')+'</tr></thead><tbody>'+(tables.ATELIERS||[]).filter(w=>M.matches(w.id,state.workshop)).map(w=>'<tr><td>'+esc(w.Code)+'</td>'+categoriesAll.map(c=>{const partnerIds=used.filter(p=>(p.Categorie||'À catégoriser')===c).map(p=>p.id);const n=data.filter(a=>a.Atelier_organisateur===w.id&&M.list(a.Partenaires).some(id=>partnerIds.includes(id))).length;return '<td class="num">'+(n||'—')+'</td>'}).join('')+'</tr>').join('')+'</tbody></table></div>':'<div class="chart-empty">Aucune catégorie renseignée.</div>';
     return '<div class="kpis">'+kpi('Partenaires distincts',used.length,'','Sur les activités sélectionnées',true)+kpi('Activités avec partenaires',s.total-s.withoutPartner,'',percent(s.total-s.withoutPartner,s.total)+' de la sélection')+kpi('Catégories représentées',categoriesAll.length,'','Selon le référentiel PARTENAIRES')+kpi('Sans partenaire associé',s.withoutPartner,'','Peut être normal selon le type d’activité')+'</div>'+
       '<div class="callout"><strong>Lecture des partenariats.</strong> Le commanditaire (champ Organisme) et le financeur ne sont pas automatiquement assimilés aux partenaires associés. Une activité impliquant plusieurs catégories apparaît dans chacune : les colonnes ne sont pas additives.</div>'+
       '<div class="grid-equal">'+panel('Avec quels types de partenaires ?','Nombre d’activités par catégorie',basicBars(bars))+panel('Les partenariats selon les ateliers','Nombre d’activités · atelier organisateur',workshopTable)+'</div>'+
@@ -132,7 +140,7 @@
   }
   function themes(data){
     const themes=(tables.THEMATIQUES||[]).filter(t=>!state.theme||String(t.id)===state.theme);
-    const workshops=(tables.ATELIERS||[]).filter(w=>!state.workshop||String(w.id)===state.workshop);
+    const workshops=(tables.ATELIERS||[]).filter(w=>M.matches(w.id,state.workshop));
     const max=Math.max(1,...workshops.flatMap(w=>themes.map(t=>data.filter(a=>a.Atelier_organisateur===w.id&&a.Thematique===t.id).length)));
     const matrix='<div class="table-wrap"><table class="matrix"><thead><tr><th>Atelier</th>'+themes.map(t=>'<th>'+esc(t.Libelle)+'</th>').join('')+'</tr></thead><tbody>'+workshops.map(w=>'<tr><td><strong>'+esc(w.Code)+'</strong></td>'+themes.map(t=>{const n=data.filter(a=>a.Atelier_organisateur===w.id&&a.Thematique===t.id).length;return '<td><button class="heat" data-theme="'+t.id+'" data-theme-workshop="'+w.id+'" aria-label="'+esc(w.Code)+' · '+esc(t.Libelle)+' : '+n+' activités" style="background:rgba(24,125,115,'+(n?.06+n/max*.55:.025)+');color:'+(n/max>.7?'white':'#17323a')+'">'+(n||'·')+'</button></td>'}).join('')+'</tr>').join('')+'</tbody></table></div>';
     const audiences=new Map();
@@ -157,22 +165,26 @@
   function render(){
     const def=definitions[state.view];
     $('navigation').innerHTML=Object.entries(definitions).map(([key,d])=>'<a href="#view='+key+'" class="nav-link '+(key===state.view?'active':'')+'" data-nav="'+key+'" '+(key===state.view?'aria-current="page"':'')+' title="'+d.label+'">'+icon(d.icon)+'<span class="nav-text">'+d.label+'</span></a>').join('');
-    $('breadcrumb').textContent=def.label;$('page-title').textContent=def.title;$('page-description').textContent=def.description;
-    $('eyebrow').textContent=state.workshop?workshopName(Number(state.workshop))+' · VUE FILTRÉE':'DIRECTION TERRITORIALE · GRAND EST';
+    $('breadcrumb').textContent=def.label;$('page-title').textContent=def.title;$('page-description').textContent=def.description;$('page-description').hidden=!def.description;
+    $('eyebrow').textContent=state.workshop?(state.workshop.includes('|')?state.workshop.split('|').length+' ateliers sélectionnés':workshopName(Number(state.workshop)))+' · VUE FILTRÉE':'DIRECTION TERRITORIALE · GRAND EST';
     if(!loaded)return;
     const data=rows();
     $('selection-count').textContent=data.length+' / '+(tables.ACTIVITES||[]).length+' activités';
     $('content').innerHTML=renderers[state.view](data);
     const embedded=source==='grist';
-    $('connection').textContent=embedded?'Connecté à Grist':source==='local'?'Aperçu local · extrait Grist':'Démonstration';
+    $('connection').textContent=embedded?'Grist · actualisé à '+new Date(snapshotAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):source==='local'?'Aperçu local · extrait Grist':'Démonstration';
+    $('refresh').textContent=embedded?'Actualiser':source==='local'?'Recharger l’aperçu':'Recharger la démonstration';
+    $('refresh').title=embedded?'Relire les tables Grist maintenant. Les filtres sont conservés.':source==='local'?'Relire l’extrait local enregistré ; ce bouton ne récupère pas les modifications récentes de Grist.':'Recharger le jeu de démonstration, sans connexion au document Grist.';
     $('source-notice').hidden=embedded;
     $('source-notice').textContent=source==='local'?'APERÇU LOCAL — Données de votre document au '+new Date(snapshotAt).toLocaleString('fr-FR')+'. Aucune modification possible.':'DÉMONSTRATION — Données entièrement synthétiques. Pour lire votre document, ouvrir cette URL dans un widget personnalisé Grist.';
     $('source-notice').classList.remove('error');
-    $('data-footer').textContent=(embedded?'Grist · actualisé le ':source==='local'?'Extrait Grist du ':'Données synthétiques · ')+new Date(snapshotAt).toLocaleDateString('fr-FR')+' · lecture seule · v0.1';
+    $('data-footer').textContent=(embedded?'Grist · actualisé le ':source==='local'?'Extrait Grist du ':'Données synthétiques · ')+new Date(snapshotAt).toLocaleDateString('fr-FR')+' · lecture seule · v0.2';
     writeRoute();
     bindContent();
   }
   function bindContent(){
+    document.querySelectorAll('[data-explain]').forEach(b=>b.addEventListener('click',()=>explainIndicator(b.dataset.explain)));
+    $('overview-metric')?.addEventListener('change',e=>{state.overviewMetric=e.target.value;render()});
     document.querySelectorAll('[data-activity]').forEach(b=>b.addEventListener('click',()=>openActivity(Number(b.dataset.activity))));
     document.querySelectorAll('[data-workshop]').forEach(b=>b.addEventListener('click',()=>{state.workshop=b.dataset.workshop;state.view='workshops';state.month='';state.theme='';state.page=1;populateFilters();render()}));
     document.querySelectorAll('[data-month]').forEach(b=>b.addEventListener('click',()=>{state.month=b.dataset.month;state.workshop=b.dataset.planningWorkshop;state.year=b.dataset.planningYear;state.view='activities';state.page=1;populateFilters();render()}));
@@ -196,6 +208,15 @@
     $('drawer').querySelector('.drawer-close').addEventListener('click',closeDrawer);
   }
   function closeDrawer(){$('drawer').hidden=true;$('drawer-backdrop').hidden=true;document.body.style.overflow='';if(lastFocus?.isConnected)lastFocus.focus()}
+  function explainIndicator(key){
+    const s=M.summary(rows());
+    const texts={
+      hours:{title:'Comment sont calculées les heures prévues ?',body:'<p>Le total additionne les durées prévues renseignées sur les activités sélectionnées, en excluant les activités annulées.</p><p><strong>'+s.missingPlannedDuration+' activité(s) non annulée(s) n’ont pas de durée prévue.</strong> Ces activités restent comptées dans le nombre d’activités, mais ne peuvent pas contribuer au total des heures. Une durée absente n’est pas considérée comme zéro.</p><p>Le total inclut aussi les durées prévues des activités déjà réalisées. Il ne mesure donc ni les seules heures restant à faire ni la charge complète des équipes.</p>'},
+      progress:{title:'Que signifie la part des activités réalisées ?',body:'<p><strong>'+s.done+' activités sont à l’état « Réalisé » sur '+s.total+' activités sélectionnées, soit '+percent(s.done,s.total)+'.</strong> Le dénominateur inclut les activités à venir, en cours, reportées, à relancer et annulées.</p><p>C’est une photographie de la répartition des états, pas un taux de réussite ni d’atteinte d’un objectif. Un pourcentage faible peut simplement refléter une programmation comportant beaucoup d’activités futures.</p><p>Pour piloter, examiner une période donnée, les dates des activités et les reports. Le tableau ne dispose pas encore d’un historique permettant de comparer l’avancement à une date passée.</p>'},
+      alerts:{title:'Pourquoi une activité figure-t-elle dans les relances ?',body:'<p>Une activité apparaît si au moins un des deux critères suivants est rempli :</p><ol><li><strong>L’état de l’activité est « À relancer ».</strong> C’est une information renseignée dans Grist. Cette condition ne vérifie pas qu’une date de relance est dépassée.</li><li><strong>L’indicateur « COQ — Relance à prévoir » est actif dans Grist.</strong> Sa formule actuelle vérifie un parcours « En attente de retour du porteur » ou « À relancer », l’absence de date de retour du porteur et une échéance atteinte ou dépassée.</li></ol><p>Pour le critère COQ, la date de relance explicite est prioritaire. À défaut, l’échéance correspond à la date des préconisations plus le délai de retour (15 jours par défaut).</p><p>Une activité remplissant les deux critères n’est comptée qu’une fois. Le motif apparaît dans la liste. Les dates de relance dépassées hors COQ, les pièces manquantes et les activités sans référent ne sont pas des critères supplémentaires dans cette version.</p>'}
+    };
+    const t=texts[key];if(t)openDrawer('<div class="eyebrow">LIRE LES INDICATEURS</div><h2>'+t.title+'</h2>'+t.body,t.title);
+  }
   function openActivity(id){
     const a=(tables.ACTIVITES||[]).find(a=>a.id===id);if(!a)return;
     const hours=v=>M.number(v)==null?'Non renseignée':fmt(v,1)+' h';
@@ -241,17 +262,19 @@
     const a=document.createElement('a');a.href=url;a.download='pilotage-grand-est-'+new Date().toISOString().slice(0,10)+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast(selected.length+' activité(s) exportée(s).');
   }
   function columnarRows(table){return (table.id||[]).map((id,i)=>Object.fromEntries(Object.entries(table).map(([key,values])=>[key,values[i]])))}
-  const tableNames=['ACTIVITES','ATELIERS','COLLABORATEURS','THEMATIQUES','SOUS_THEMATIQUES','PARTENAIRES'];
+  const tableNames=['ACTIVITES','ATELIERS','COLLABORATEURS','THEMATIQUES','SOUS_THEMATIQUES','PARTENAIRES','PERIODES'];
+  let refreshing=false;
   async function refreshLive(){
-    if(!live)return;
+    if(!live||refreshing)return;
+    refreshing=true;
     $('connection').textContent='Actualisation…';
     try{
       const result=await Promise.all(tableNames.map(async t=>{
         try{return [t,columnarRows(await window.grist.docApi.fetchTable(t))]}
-        catch(e){if(t==='PARTENAIRES'||t==='SOUS_THEMATIQUES')return [t,[]];throw e}
+        catch(e){if(t==='PARTENAIRES'||t==='SOUS_THEMATIQUES'||t==='PERIODES')return [t,[]];throw e}
       }));
       source='grist';installData({tables:Object.fromEntries(result)});
-    }catch(e){showError('Connexion Grist incomplète. Vérifier l’accès du widget au document et la présence des tables ACTIVITES, ATELIERS, COLLABORATEURS et THEMATIQUES. Aucun jeu de démonstration n’est utilisé à la place de vos données.');console.error('Grist read failed',e)}
+    }catch(e){showError('Connexion Grist incomplète. Vérifier l’accès du widget au document et la présence des tables ACTIVITES, ATELIERS, COLLABORATEURS et THEMATIQUES. Aucun jeu de démonstration n’est utilisé à la place de vos données.');console.error('Grist read failed',e)}finally{refreshing=false}
   }
   function showError(message){
     $('source-notice').hidden=false;$('source-notice').classList.add('error');$('source-notice').textContent=message;$('connection').textContent='Connexion à vérifier';
@@ -263,6 +286,7 @@
     const table={
       ATELIERS:codes.map((c,i)=>({id:i+1,Code:'AC '+c,Libelle:'Atelier Canopé '+c})),
       COLLABORATEURS:codes.flatMap((c,i)=>[1,2].map(j=>({id:i*2+j,Etiquette:'Référent '+c+' · '+j,Rattachements:i+1}))),
+      PERIODES:[{id:1,Code:'2026 — premier semestre (démo)',Date_debut:Date.UTC(2026,0,1)/1000,Date_fin:Date.UTC(2026,5,30)/1000},{id:2,Code:'2026 — second semestre (démo)',Date_debut:Date.UTC(2026,6,1)/1000,Date_fin:Date.UTC(2026,11,31)/1000}],
       THEMATIQUES:themes.map((t,i)=>({id:i+1,Libelle:t})),SOUS_THEMATIQUES:[],
       PARTENAIRES:[{id:1,Nom_partenaire:'Commune de démonstration',Categorie:'Commune',Territoire:'Territoire exemple'},{id:2,Nom_partenaire:'Association de démonstration',Categorie:'Association',Territoire:'Grand Est'},{id:3,Nom_partenaire:'Conseil départemental de démonstration',Categorie:'Conseil départemental',Territoire:'Département exemple'}],
       ACTIVITES:Array.from({length:84},(_,i)=>{
@@ -275,10 +299,12 @@
   async function init(){
     render();
     $('filters').addEventListener('submit',e=>e.preventDefault());
-    ['year','workshop','type','status'].forEach(k=>$('filter-'+k).addEventListener('change',e=>{state[k]=e.target.value;state.page=1;render()}));
-    $('reset').addEventListener('click',()=>{['year','workshop','type','status','theme','month','alerts','search'].forEach(k=>state[k]='');state.page=1;populateFilters();render()});
-    $('navigation').addEventListener('click',e=>{const link=e.target.closest('[data-nav]');if(!link)return;e.preventDefault();state.view=link.dataset.nav;state.month='';state.theme='';state.alerts='';state.search='';state.page=1;render();window.scrollTo(0,0)});
-    document.addEventListener('click',e=>{const a=e.target.closest('a[href^="#view="]');if(a&&!a.dataset.nav){e.preventDefault();state.view=new URLSearchParams(a.hash.slice(1)).get('view');state.month='';state.theme='';state.page=1;render()}});
+    ['year','month','period'].forEach(k=>$('filter-'+k).addEventListener('change',e=>{state[k]=e.target.value;state.page=1;render()}));
+    $('filters').addEventListener('change',e=>{if(!e.target.dataset.multi)return;const key=e.target.dataset.multi;state[key]=[...$('filter-'+key).querySelectorAll('input:checked')].map(i=>i.value).join('|');e.target.closest('details').querySelector('summary').textContent=state[key]?state[key].split('|').length+' sélection(s)':'Tous';state.page=1;render()});
+    $('filters').addEventListener('click',e=>{const key=e.target.dataset.filterClear;if(key){state[key]='';state.page=1;populateFilters();render()}});
+    $('reset').addEventListener('click',()=>{['year','workshop','type','status','theme','month','period','alerts','search'].forEach(k=>state[k]='');state.page=1;populateFilters();render()});
+    $('navigation').addEventListener('click',e=>{const link=e.target.closest('[data-nav]');if(!link)return;e.preventDefault();state.view=link.dataset.nav;state.theme='';state.alerts='';state.search='';state.page=1;render();window.scrollTo(0,0)});
+    document.addEventListener('click',e=>{const a=e.target.closest('a[href^="#view="]');if(a&&!a.dataset.nav){e.preventDefault();state.view=new URLSearchParams(a.hash.slice(1)).get('view');state.theme='';state.page=1;render()}});
     $('methodology').addEventListener('click',showDefinitions);$('definitions').addEventListener('click',showDefinitions);$('drawer-backdrop').addEventListener('click',closeDrawer);
     document.addEventListener('keydown',e=>{
       if($('drawer').hidden)return;
@@ -301,6 +327,10 @@
       let timer;
       window.grist.onRecords(()=>{clearTimeout(timer);timer=setTimeout(refreshLive,150)});
       refreshLive();
+      const safeRefresh=()=>{if(!document.hidden&&$('drawer').hidden&&!document.querySelector('#filters details[open]'))refreshLive()};
+      window.addEventListener('focus',safeRefresh);
+      document.addEventListener('visibilitychange',safeRefresh);
+      setInterval(safeRefresh,30000);
     };
     sdk.onerror=()=>showError('L’API des widgets Grist n’a pas pu être chargée. Vérifier la connexion réseau et les autorisations de cette instance.');
     document.head.appendChild(sdk);
