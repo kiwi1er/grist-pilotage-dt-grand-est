@@ -17,6 +17,7 @@
       &&matches(a.Atelier_organisateur,f.workshop)
       &&matches(a.Type_d_activite,f.type)
       &&matches(a.Etat_de_l_action,f.status)
+      &&(!f.person||matches(a.Referent_de_l_action,f.person)||list(a.Intervenants).some(id=>matches(id,f.person)))
       &&(!f.theme||String(a.Thematique)===String(f.theme))
       &&(!f.month||(activityDate(a)&&String(activityDate(a).getUTCMonth()+1)===String(f.month)))
       &&(!f.fromDate||(activityDate(a)&&activityDate(a)>=date(f.fromDate)))

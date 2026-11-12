@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Pilotage des activités de la direction territoriale Grand Est — Réseau Canopé.">
   <title>Pilotage · DT Grand Est</title>
-  <link rel="stylesheet" href="./styles.css?v=0.2">
+  <link rel="stylesheet" href="./styles.css?v=0.3">
 </head>
 <body>
   <a href="#main" class="skip">Aller au contenu</a>
@@ -15,7 +15,7 @@
     <div class="nav-caption">PILOTAGE</div>
     <nav id="navigation"></nav>
     <div class="sidebar-note"><span class="online-dot"></span><strong>Une base, plusieurs regards.</strong><p>Explorer les activités, comprendre les équilibres et préparer les arbitrages.</p></div>
-    <div class="sidebar-footer"><span>Prototype · v0.2</span><button id="methodology" aria-label="Comprendre les indicateurs">ⓘ</button></div>
+    <div class="sidebar-footer"><span>Prototype · v0.3</span><button id="methodology" aria-label="Comprendre les indicateurs">ⓘ</button></div>
   </aside>
   <div class="workspace">
     <header class="topbar"><div class="breadcrumb">Programmation <span>/</span> <strong id="breadcrumb">Vue d’ensemble</strong></div><div class="top-actions"><span id="connection" class="connection">Initialisation…</span><button class="secondary small" id="refresh" title="Relire les données du document Grist sans modifier les filtres">Actualiser</button><button class="secondary small" id="export" title="Extraction CSV provisoire des activités sélectionnées ; contenu à définir lors de la revue">Export CSV (prototype)</button></div></header>
@@ -27,6 +27,7 @@
         <div class="filter-field"><span>Ateliers</span><div id="filter-workshop"></div></div>
         <div class="filter-field"><span>Types d’activité</span><div id="filter-type"></div></div>
         <div class="filter-field"><span>États</span><div id="filter-status"></div></div>
+        <div class="filter-field"><span>Personnes</span><div id="filter-person"></div></div>
         <button type="button" class="reset" id="reset">Réinitialiser</button>
         <span id="selection-count"></span>
         <details class="date-filters"><summary>Dates et périodes</summary><div class="date-fields"><label>Mois<select id="filter-month"><option value="">Tous les mois</option></select></label><label>Période Grist<select id="filter-period"><option value="">Toutes les périodes</option></select></label><p>Les critères de date se combinent. Les activités sans date sont exclues dès qu’une date est sélectionnée.</p></div></details>
@@ -38,7 +39,7 @@
   <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
   <aside class="drawer" id="drawer" aria-label="Détail" aria-modal="true" role="dialog" hidden tabindex="-1"></aside>
   <div class="toast" id="toast" role="status" hidden></div>
-  <script src="./model.js?v=0.2"></script>
-  <script src="./app.js?v=0.2"></script>
+  <script src="./model.js?v=0.3"></script>
+  <script src="./app.js?v=0.3"></script>
 </body>
 </html>

@@ -55,3 +55,9 @@ test('les bornes de période sont inclusives et excluent les dates absentes',()=
  assert.deepEqual(M.filter(rows,{fromDate:d,toDate:e}).map(r=>r.id),[1,2]);
  assert.deepEqual(M.filter(rows,{fromDate:d,toDate:e,month:'9'}).map(r=>r.id),[1]);
 });
+test('le filtre personne inclut référent ou intervenant sans dupliquer une activité',()=>{
+ const rs=[{id:1,Referent_de_l_action:2,Intervenants:['L',2,3]},{id:2,Referent_de_l_action:3,Intervenants:['L',2]},{id:3,Referent_de_l_action:4}];
+ assert.deepEqual(M.filter(rs,{person:'2'}).map(r=>r.id),[1,2]);
+ assert.deepEqual(M.filter(rs,{person:'2|4'}).map(r=>r.id),[1,2,3]);
+ assert.deepEqual(M.filter(rs,{person:'99'}),[]);
+});

@@ -20,17 +20,17 @@
   const paths={grid:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',calendar:'M4 5h16v16H4z M4 10h16 M8 3v4 M16 3v4 M8 14h2 M14 14h2 M8 17h2',network:'M9 5a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M2 18a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M16 18a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M10 8L6 15 M14 8l4 7',layers:'M3 7l9-5 9 5-9 5z M3 12l9 5 9-5 M3 17l9 5 9-5',list:'M8 6h13 M8 12h13 M8 18h13 M3 6h1 M3 12h1 M3 18h1'};
   const icon=name=>'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+paths[name]+'"/></svg>';
   let tables={},lookups={},loaded=false,source='demo',snapshotAt=null,live=false;
-  let state={view:'overview',year:'',workshop:'',type:'',status:'',theme:'',month:'',period:'',alerts:'',search:'',sort:'date',page:1,metric:'hours',overviewMetric:'count',planningYear:String(new Date().getFullYear())};
+  let state={view:'overview',year:'',workshop:'',person:'',type:'',status:'',theme:'',month:'',period:'',alerts:'',search:'',sort:'date',page:1,metric:'hours',overviewMetric:'count',planningYear:String(new Date().getFullYear())};
   let lastFocus=null;
   const readRoute=()=>{
     const p=new URLSearchParams(location.hash.slice(1));
-    ['view','year','workshop','type','status','theme','month','period','alerts','search'].forEach(k=>state[k]=p.get(k)||'');
+    ['view','year','workshop','person','type','status','theme','month','period','alerts','search'].forEach(k=>state[k]=p.get(k)||'');
     if(!definitions[state.view])state.view='overview';
   };
   readRoute();
   function writeRoute(){
     const p=new URLSearchParams();
-    ['view','year','workshop','type','status','theme','month','period','alerts','search'].forEach(k=>{if(state[k])p.set(k,state[k])});
+    ['view','year','workshop','person','type','status','theme','month','period','alerts','search'].forEach(k=>{if(state[k])p.set(k,state[k])});
     history.replaceState(null,'','#'+p.toString());
   }
   const name=(table,id,fallback='Non renseigné')=>{
@@ -48,7 +48,7 @@
     populateFilters();render();
   }
   function setOptions(id,options,selected,placeholder){
-    if(['filter-workshop','filter-type','filter-status'].includes(id)){
+    if(['filter-workshop','filter-person','filter-type','filter-status'].includes(id)){
       const key=id.slice(7), chosen=selected?selected.split('|'):[];
       $(id).innerHTML='<details class="multi-filter"><summary>'+(chosen.length?chosen.length+' sélection(s)':esc(placeholder))+'</summary><div class="multi-options"><button type="button" data-filter-clear="'+key+'" class="text-button">Tous / effacer la sélection</button>'+options.map(o=>'<label><input type="checkbox" data-multi="'+key+'" value="'+esc(o.value)+'" '+(chosen.includes(String(o.value))?'checked':'')+'>'+esc(o.label)+'</label>').join('')+'<small>Plusieurs choix possibles. Aucun choix : tous.</small></div></details>';return;
     }
@@ -61,6 +61,7 @@
     if(!years.includes(Number(state.planningYear)))state.planningYear=String(years.includes(now)?now:years.at(-1)||now);
     setOptions('filter-year',years.map(y=>({value:y,label:y+' · année civile'})),state.year,'Toutes les années');
     setOptions('filter-workshop',(tables.ATELIERS||[]).map(a=>({value:a.id,label:a.Libelle||a.Code})),state.workshop,'Tous les ateliers');
+    setOptions('filter-person',(tables.COLLABORATEURS||[]).map(p=>({value:p.id,label:name('COLLABORATEURS',p.id)})),state.person,'Toutes les personnes');
     setOptions('filter-type',types.map(t=>({value:t,label:t})),state.type,'Tous les types');
     setOptions('filter-month',months.map((m,i)=>({value:i+1,label:m})),state.month,'Tous les mois');
     setOptions('filter-period',(tables.PERIODES||[]).map(p=>({value:p.id,label:p.Code+' · '+date(p.Date_debut)+' — '+date(p.Date_fin)})),state.period,'Toutes les périodes');
@@ -105,23 +106,41 @@
       '<div class="grid-equal">'+panel('Les thématiques les plus présentes','Nombre d’activités avec une thématique renseignée',basicBars(top.map(g=>({label:name('THEMATIQUES',g.key),value:g.total}))),'<a href="#view=themes" class="text-button">Tout voir ↗</a>',s.withoutTheme+' activité(s) sans thématique.')+panel('La qualité des informations','Repérer ce qui reste à compléter','<div class="quality-grid"><div class="quality-card"><strong>'+s.undated+'</strong>sans date</div><div class="quality-card"><strong>'+s.withoutTheme+'</strong>sans thématique</div><div class="quality-card"><strong>'+s.missingPlannedDuration+'</strong>sans durée prévue</div><div class="quality-card"><strong>'+s.withoutPartner+'</strong>sans partenaire associé</div><div class="quality-card"><strong>'+s.partners+'</strong>partenaire(s) distinct(s)</div><div class="quality-card"><strong>'+fmt(s.actualHours,1)+' h</strong>réalisées et renseignées</div></div>','','L’absence de partenaire peut être normale, notamment pour une action interne.')+'</div>'+
       '<section class="panel"><div class="panel-head"><div><h2>Les activités à relancer</h2><p>État « À relancer » ou indicateur COQ actif · '+alerts.length+' activité(s)</p><button class="text-button" data-explain="alerts">Quels sont les critères ?</button></div><button class="text-button" data-alerts>Ouvrir la liste ↗</button></div>'+alertTable+'</section>';
   }
+  function selectionDescription(){
+    const period=lookups.PERIODES?.get(Number(state.period));
+    const parts=[state.year?'Année '+state.year:'Toutes les années'];
+    if(state.month)parts.push(months[Number(state.month)-1]);
+    if(period)parts.push(period.Code+' : '+date(period.Date_debut)+' au '+date(period.Date_fin));
+    parts.push(state.workshop?state.workshop.split('|').map(workshopShort).join(', '):'Tous les ateliers');
+    parts.push(state.type?state.type.split('|').join(', '):'Tous les types');
+    if(state.status)parts.push('États : '+state.status.split('|').join(', '));
+    if(state.person)parts.push('Personnes : '+state.person.split('|').map(id=>name('COLLABORATEURS',id)).join(', '));
+    return parts.join(' · ');
+  }
   function workshops(data){
     const s=M.summary(data);
+    const scope=esc(selectionDescription());
+    const singleType=state.type&&!state.type.includes('|');
     const planningYear=Number(state.year||state.planningYear);
     const planningRows=data.filter(a=>M.year(a)===planningYear);
     const workshops=(tables.ATELIERS||[]).filter(w=>M.matches(w.id,state.workshop));
     const cells=workshops.map(w=>({w,months:months.map((_,i)=>{const rs=planningRows.filter(a=>a.Atelier_organisateur===w.id&&M.activityDate(a)?.getUTCMonth()===i);return {rows:rs,value:state.metric==='hours'?M.summary(rs).plannedHours:rs.length}})}));
-    const max=Math.max(1,...cells.flatMap(c=>c.months.map(m=>m.value)));
-    const planning='<div class="table-wrap"><table class="planning"><thead><tr><th>Atelier organisateur</th>'+months.map(m=>'<th>'+m+'</th>').join('')+'</tr></thead><tbody>'+cells.map(c=>'<tr><td><strong>'+esc(c.w.Code)+'</strong><span class="sub">'+esc(c.w.Libelle)+'</span></td>'+c.months.map((m,i)=>'<td><button class="heat" data-month="'+(i+1)+'" data-planning-workshop="'+c.w.id+'" data-planning-year="'+planningYear+'" style="background:rgba(24,125,115,'+(m.value?(.08+m.value/max*.55):.025)+');color:'+(m.value/max>.7?'white':'#17323a')+'" aria-label="'+esc(c.w.Code)+' · '+months[i]+' '+planningYear+' : '+fmt(m.value,1)+(state.metric==='hours'?' heures prévues':' activités')+'">'+(m.value?fmt(m.value,1):'·')+'<small>'+(m.value?(state.metric==='hours'?'h prévues':'activité(s)'):'')+'</small></button></td>').join('')+'</tr>').join('')+'</tbody></table></div>';
+    const actualMax=Math.max(0,...cells.flatMap(c=>c.months.map(m=>m.value)));
+    const max=Math.max(1,actualMax);
+    const period=lookups.PERIODES?.get(Number(state.period));
+    const inScope=i=>(!state.month||Number(state.month)===i+1)&&(!period||(Date.UTC(planningYear,i+1,0)/1000>=period.Date_debut&&Date.UTC(planningYear,i,1)/1000<=period.Date_fin));
+    const planning='<div class="table-wrap"><table class="planning"><thead><tr><th>Atelier organisateur</th>'+months.map(m=>'<th>'+m+'</th>').join('')+'</tr></thead><tbody>'+cells.map(c=>'<tr><td><strong>'+esc(c.w.Code)+'</strong><span class="sub">'+esc(c.w.Libelle)+'</span></td>'+c.months.map((m,i)=>!inScope(i)?'<td><span class="outside-selection" title="Mois hors des filtres de date">—</span></td>':'<td><button class="heat" data-month="'+(i+1)+'" data-planning-workshop="'+c.w.id+'" data-planning-year="'+planningYear+'" style="background:rgba(24,125,115,'+(m.value?(.08+m.value/max*.55):.025)+');color:'+(m.value/max>.7?'white':'#17323a')+'" aria-label="'+esc(c.w.Code)+' · '+months[i]+' '+planningYear+' : '+fmt(m.value,1)+(state.metric==='hours'?' heures prévues':' activités')+'">'+(m.value?fmt(m.value,1):'·')+'<small>'+(m.value?(state.metric==='hours'?'h prévues':'activité(s)'):'')+'</small></button></td>').join('')+'</tr>').join('')+'</tbody></table></div>';
     const yearOptions=[...new Set((tables.ACTIVITES||[]).map(M.year).filter(Boolean))].sort();
-    const controls='<div class="inline-controls">'+(!state.year?'<select id="planning-year" aria-label="Année du calendrier">'+yearOptions.map(y=>'<option '+(y===planningYear?'selected':'')+'>'+y+'</option>').join('')+'</select>':'')+'<select id="planning-metric" aria-label="Indicateur du calendrier"><option value="hours" '+(state.metric==='hours'?'selected':'')+'>Heures prévues</option><option value="count" '+(state.metric==='count'?'selected':'')+'>Nombre d’activités</option></select></div>';
+    const controls='<div class="inline-controls">'+('<select id="planning-year" aria-label="Année du calendrier">'+yearOptions.map(y=>'<option '+(y===planningYear?'selected':'')+'>'+y+'</option>').join('')+'</select>')+'<select id="planning-metric" aria-label="Indicateur du calendrier"><option value="hours" '+(state.metric==='hours'?'selected':'')+'>Heures prévues</option><option value="count" '+(state.metric==='count'?'selected':'')+'>Nombre d’activités</option></select></div>';
     const staffCounts=new Map();
     data.forEach(a=>{const ids=new Set([...M.list(a.Intervenants),...(a.Referent_de_l_action?[a.Referent_de_l_action]:[])]);ids.forEach(id=>{if(!staffCounts.has(id))staffCounts.set(id,[]);staffCounts.get(id).push(a)})});
     const staff=[...staffCounts].map(([id,rs])=>({id,rs})).sort((a,b)=>b.rs.length-a.rs.length);
-    return '<div class="kpis">'+kpi('Ateliers organisateurs',new Set(data.map(a=>a.Atelier_organisateur).filter(Boolean)).size,'','Ateliers ayant au moins une activité',true)+kpi('Heures prévues',fmt(s.plannedHours,1),'h','Durées d’activité · hors annulées')+kpi('Durée moyenne réalisée',fmt(s.averageDuration,1),'h',s.durationCount+'/'+s.done+' activités réalisées renseignées')+kpi('Personnes mobilisées',staff.length,'','Référents ou intervenants · sans doublon')+'</div>'+
-      '<div class="callout warn"><strong>Volume d’activité, pas taux d’occupation.</strong> Les durées ne couvrent pas encore la préparation, la coordination ni la capacité disponible des équipes. Les activités multi-dates sont placées au mois de leur première date.</div>'+
-      '<section class="panel"><div class="panel-head"><div><h2>La programmation au fil des mois</h2><p>Année civile '+planningYear+' · cliquer sur une case pour ouvrir les activités</p></div>'+controls+'</div>'+planning+'<div class="panel-foot">'+s.undated+' activité(s) sans date dans la sélection globale. Les heures des activités annulées sont exclues.</div></section>'+
-      '<div class="grid-equal section-spacer">'+panel('Volumes d’activité par atelier','Heures prévues · atelier organisateur',legend()+workshopBars(data,'hours'))+panel('Qui est mobilisé ?','Référents et intervenants des activités sélectionnées',staff.length?'<div class="table-wrap"><table><thead><tr><th>Personne</th><th>Rattachement</th><th class="num">Activités</th></tr></thead><tbody>'+staff.map(p=>'<tr><td>'+esc(name('COLLABORATEURS',p.id))+'</td><td>'+esc(workshopShort(lookups.COLLABORATEURS?.get(p.id)?.Rattachements))+'</td><td class="num">'+p.rs.length+'</td></tr>').join('')+'</tbody></table></div>':empty('Aucune personne renseignée','Compléter les référents et les intervenants.'),'','Une participation à une activité n’indique pas le nombre d’heures travaillées par la personne.')+'</div>';
+    const singleWorkshop=!!state.workshop&&!state.workshop.includes('|');
+    const volumePanel=singleWorkshop?panel('La répartition des activités de cet atelier','Heures prévues par type · hors annulées',basicBars(types.map(label=>({label,value:M.summary(data.filter(a=>a.Type_d_activite===label)).plannedHours})))):panel('Volumes d’activité par atelier','Heures prévues · atelier organisateur',legend()+workshopBars(data,'hours'));
+    return '<div class="selection-context"><strong>Sélection affichée</strong><span>'+scope+'</span></div><div class="kpis">'+kpi('Activités sélectionnées',s.total,'','Activités de la sélection ci-dessus',true)+kpi('Heures prévues',fmt(s.plannedHours,1),'h','Pour la sélection ci-dessus · hors annulées · '+s.missingPlannedDuration+' durée(s) absente(s)')+kpi('Durée moyenne réalisée',singleType?fmt(s.averageDuration,1):'—',singleType?'h':'',singleType?esc(state.type)+' · '+s.durationCount+'/'+s.done+' durées renseignées':'Sélectionner un seul type pour lire une moyenne pertinente')+kpi('Personnes mobilisées',staff.length,'','Personnes associées aux activités retenues, y compris celles d’autres ateliers')+'</div>'+
+      '<div class="callout warn"><strong>Durées d’activité renseignées.</strong> Les temps de préparation et de coordination par personne ainsi que la capacité disponible ne sont pas renseignés dans la structure actuelle. Le calendrier place chaque activité au mois de sa première date.</div>'+
+      '<section class="panel"><div class="panel-head"><div><h2>La programmation au fil des mois</h2><p>Calendrier '+planningYear+(state.year?' · même année que le filtre global':' · les indicateurs ci-dessus couvrent toutes les années')+' · cliquer sur une case pour ouvrir les activités</p></div>'+controls+'</div>'+planning+'<div class="panel-foot"><div class="heat-legend"><span>Faible volume</span><i></i><span>Volume élevé</span></div>Teinte relative au maximum affiché ('+fmt(actualMax,1)+(state.metric==='hours'?' h':' activités')+'), sans seuil de surcharge. Un tiret indique un mois hors sélection. '+s.undated+' activité(s) sans date dans la sélection globale. Les heures des activités annulées sont exclues.</div></section>'+
+      '<div class="grid-equal section-spacer workshop-panels">'+volumePanel+panel('Qui est mobilisé ?','Référents et intervenants des activités sélectionnées',staff.length?'<div class="table-wrap"><table><thead><tr><th>Personne</th><th>Rattachement</th><th class="num">Activités</th></tr></thead><tbody>'+staff.map(p=>'<tr><td><button class="text-button" data-person="'+p.id+'">'+esc(name('COLLABORATEURS',p.id))+'</button></td><td>'+esc(workshopShort(lookups.COLLABORATEURS?.get(p.id)?.Rattachements))+'</td><td class="num">'+p.rs.length+'</td></tr>').join('')+'</tbody></table></div>':empty('Aucune personne renseignée','Compléter les référents et les intervenants.'),'','Une participation à une activité n’indique pas le nombre d’heures travaillées par la personne.')+'</div>';
   }
   function partners(data){
     const ids=new Set(data.flatMap(a=>M.list(a.Partenaires)));
@@ -178,7 +197,7 @@
     $('source-notice').hidden=embedded;
     $('source-notice').textContent=source==='local'?'APERÇU LOCAL — Données de votre document au '+new Date(snapshotAt).toLocaleString('fr-FR')+'. Aucune modification possible.':'DÉMONSTRATION — Données entièrement synthétiques. Pour lire votre document, ouvrir cette URL dans un widget personnalisé Grist.';
     $('source-notice').classList.remove('error');
-    $('data-footer').textContent=(embedded?'Grist · actualisé le ':source==='local'?'Extrait Grist du ':'Données synthétiques · ')+new Date(snapshotAt).toLocaleDateString('fr-FR')+' · lecture seule · v0.2';
+    $('data-footer').textContent=(embedded?'Grist · actualisé le ':source==='local'?'Extrait Grist du ':'Données synthétiques · ')+new Date(snapshotAt).toLocaleDateString('fr-FR')+' · lecture seule · v0.3';
     writeRoute();
     bindContent();
   }
@@ -189,7 +208,8 @@
     document.querySelectorAll('[data-workshop]').forEach(b=>b.addEventListener('click',()=>{state.workshop=b.dataset.workshop;state.view='workshops';state.month='';state.theme='';state.page=1;populateFilters();render()}));
     document.querySelectorAll('[data-month]').forEach(b=>b.addEventListener('click',()=>{state.month=b.dataset.month;state.workshop=b.dataset.planningWorkshop;state.year=b.dataset.planningYear;state.view='activities';state.page=1;populateFilters();render()}));
     document.querySelectorAll('[data-theme]').forEach(b=>b.addEventListener('click',()=>{state.theme=b.dataset.theme;state.workshop=b.dataset.themeWorkshop;state.view='activities';state.page=1;populateFilters();render()}));
-    $('planning-year')?.addEventListener('change',e=>{state.planningYear=e.target.value;render()});
+    document.querySelectorAll('[data-person]').forEach(b=>b.addEventListener('click',()=>{state.person=b.dataset.person;state.view='activities';state.page=1;populateFilters();render()}));
+    $('planning-year')?.addEventListener('change',e=>{state.planningYear=e.target.value;state.year=e.target.value;state.page=1;populateFilters();render()});
     $('planning-metric')?.addEventListener('change',e=>{state.metric=e.target.value;render()});
     $('activity-search')?.addEventListener('input',e=>{state.search=e.target.value;state.page=1;const start=e.target.selectionStart;render();$('activity-search').focus();$('activity-search').setSelectionRange(start,start)});
     $('activity-sort')?.addEventListener('change',e=>{state.sort=e.target.value;state.page=1;render()});
@@ -302,7 +322,7 @@
     ['year','month','period'].forEach(k=>$('filter-'+k).addEventListener('change',e=>{state[k]=e.target.value;state.page=1;render()}));
     $('filters').addEventListener('change',e=>{if(!e.target.dataset.multi)return;const key=e.target.dataset.multi;state[key]=[...$('filter-'+key).querySelectorAll('input:checked')].map(i=>i.value).join('|');e.target.closest('details').querySelector('summary').textContent=state[key]?state[key].split('|').length+' sélection(s)':'Tous';state.page=1;render()});
     $('filters').addEventListener('click',e=>{const key=e.target.dataset.filterClear;if(key){state[key]='';state.page=1;populateFilters();render()}});
-    $('reset').addEventListener('click',()=>{['year','workshop','type','status','theme','month','period','alerts','search'].forEach(k=>state[k]='');state.page=1;populateFilters();render()});
+    $('reset').addEventListener('click',()=>{['year','workshop','person','type','status','theme','month','period','alerts','search'].forEach(k=>state[k]='');state.page=1;populateFilters();render()});
     $('navigation').addEventListener('click',e=>{const link=e.target.closest('[data-nav]');if(!link)return;e.preventDefault();state.view=link.dataset.nav;state.theme='';state.alerts='';state.search='';state.page=1;render();window.scrollTo(0,0)});
     document.addEventListener('click',e=>{const a=e.target.closest('a[href^="#view="]');if(a&&!a.dataset.nav){e.preventDefault();state.view=new URLSearchParams(a.hash.slice(1)).get('view');state.theme='';state.page=1;render()}});
     $('methodology').addEventListener('click',showDefinitions);$('definitions').addEventListener('click',showDefinitions);$('drawer-backdrop').addEventListener('click',closeDrawer);
