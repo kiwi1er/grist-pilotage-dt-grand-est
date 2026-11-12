@@ -12,9 +12,25 @@
   const activityDate=a=>date(a.Type_d_activite==='Démarchage'?a.Date_contact:a.Date_prevue);
   const year=a=>activityDate(a)?.getUTCFullYear()??null;
   const matches=(value,selected)=>!selected||String(selected).split("|").includes(String(value));
+  function teamMembers(people,workshop){
+    return people.filter(p=>matches(p.Rattachements,workshop)).map(p=>String(p.id));
+  }
+  function cooperations(rows,people){
+    const homes=new Map(people.map(p=>[String(p.id),p.Rattachements]));
+    const edges=new Map();
+    rows.filter(a=>a.Etat_de_l_action!=='Annulé'&&a.Atelier_organisateur).forEach(a=>{
+      const contributors=new Set([a.Referent_de_l_action,...list(a.Intervenants)].map(id=>homes.get(String(id))).filter(id=>id&&String(id)!==String(a.Atelier_organisateur)));
+      contributors.forEach(from=>{
+        const key=String(from)+'>'+a.Atelier_organisateur;
+        if(!edges.has(key))edges.set(key,{from,to:a.Atelier_organisateur,rows:[]});
+        edges.get(key).rows.push(a);
+      });
+    });
+    return [...edges.values()];
+  }
   function filter(rows,f){
     return rows.filter(a=>(!f.year||String(year(a))===String(f.year))
-      &&matches(a.Atelier_organisateur,f.workshop)
+      &&(f.scope==='team'?((f.teamIds||[]).some(id=>String(a.Referent_de_l_action)===String(id)||list(a.Intervenants).some(v=>String(v)===String(id)))):matches(a.Atelier_organisateur,f.workshop))
       &&matches(a.Type_d_activite,f.type)
       &&matches(a.Etat_de_l_action,f.status)
       &&(!f.person||matches(a.Referent_de_l_action,f.person)||list(a.Intervenants).some(id=>matches(id,f.person)))
@@ -59,7 +75,7 @@
     };
     return '\uFEFF'+[columns.map(c=>cell(c.label)).join(';'),...rows.map(r=>columns.map(c=>cell(c.value(r))).join(';'))].join('\r\n');
   }
-  const model={matches,list,number,sum,date,activityDate,year,filter,summary,group,csv};
+  const model={cooperations,teamMembers,matches,list,number,sum,date,activityDate,year,filter,summary,group,csv};
   if(typeof module!=='undefined'&&module.exports)module.exports=model;
   root.PilotageModel=model;
 })(typeof globalThis!=='undefined'?globalThis:this);

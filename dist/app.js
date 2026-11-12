@@ -19,18 +19,21 @@
   };
   const paths={grid:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',calendar:'M4 5h16v16H4z M4 10h16 M8 3v4 M16 3v4 M8 14h2 M14 14h2 M8 17h2',network:'M9 5a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M2 18a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M16 18a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M10 8L6 15 M14 8l4 7',layers:'M3 7l9-5 9 5-9 5z M3 12l9 5 9-5 M3 17l9 5 9-5',list:'M8 6h13 M8 12h13 M8 18h13 M3 6h1 M3 12h1 M3 18h1'};
   const icon=name=>'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+paths[name]+'"/></svg>';
-  let tables={},lookups={},loaded=false,source='demo',snapshotAt=null,live=false;
-  let state={view:'overview',year:'',workshop:'',person:'',type:'',status:'',theme:'',month:'',period:'',alerts:'',search:'',sort:'date',page:1,metric:'hours',overviewMetric:'count',planningYear:String(new Date().getFullYear())};
+  let tables={},lookups={},loaded=false,source='demo',snapshotAt=null,live=false,simulation=false;
+  let state={view:'overview',year:'',workshop:'',scope:'',person:'',type:'',status:'',theme:'',month:'',period:'',alerts:'',search:'',sort:'date',page:1,metric:'hours',overviewMetric:'count',planningYear:String(new Date().getFullYear())};
   let lastFocus=null;
+  let themeChart='profiles';
+  let partnerChart='profiles',partnerSearch='',partnerPage=1,partnerSelection='';
+  let staffSearch='',staffPages={},staffSelection='',staffOthersOpen=false;
   const readRoute=()=>{
     const p=new URLSearchParams(location.hash.slice(1));
-    ['view','year','workshop','person','type','status','theme','month','period','alerts','search'].forEach(k=>state[k]=p.get(k)||'');
+    ['view','year','workshop','scope','person','type','status','theme','month','period','alerts','search'].forEach(k=>state[k]=p.get(k)||'');
     if(!definitions[state.view])state.view='overview';
   };
   readRoute();
   function writeRoute(){
     const p=new URLSearchParams();
-    ['view','year','workshop','person','type','status','theme','month','period','alerts','search'].forEach(k=>{if(state[k])p.set(k,state[k])});
+    ['view','year','workshop','scope','person','type','status','theme','month','period','alerts','search'].forEach(k=>{if(state[k])p.set(k,state[k])});
     history.replaceState(null,'','#'+p.toString());
   }
   const name=(table,id,fallback='Non renseigné')=>{
@@ -39,9 +42,10 @@
   };
   const workshopName=id=>name('ATELIERS',id);
   const workshopShort=id=>lookups.ATELIERS?.get(Number(id))?.Code||'Sans atelier';
-  const rows=()=>{const period=lookups.PERIODES?.get(Number(state.period));return M.filter(tables.ACTIVITES||[],{...state,fromDate:period?.Date_debut,toDate:period?.Date_fin})};
+  const rows=()=>{const period=lookups.PERIODES?.get(Number(state.period));return M.filter(tables.ACTIVITES||[],{...state,teamIds:M.teamMembers(tables.COLLABORATEURS||[],state.workshop),fromDate:period?.Date_debut,toDate:period?.Date_fin})};
   function installData(data){
     tables=data.tables;
+    simulation=!!data.simulation;
     Object.keys(tables).forEach(t=>lookups[t]=new Map(tables[t].map(r=>[r.id,r])));
     snapshotAt=data.capturedAt||new Date().toISOString();
     loaded=true;
@@ -56,12 +60,16 @@
     $(id).value=selected;
   }
   function populateFilters(){
+    const single=!!state.workshop&&!state.workshop.includes('|');
+    if(!single)state.scope='';
+    $('team-scope').hidden=!single;
+    $('filter-scope').value=state.scope==='team'?'team':'';
     const years=[...new Set((tables.ACTIVITES||[]).map(M.year).filter(Boolean))].sort();
     const now=new Date().getFullYear();
     if(!years.includes(Number(state.planningYear)))state.planningYear=String(years.includes(now)?now:years.at(-1)||now);
     setOptions('filter-year',years.map(y=>({value:y,label:y+' · année civile'})),state.year,'Toutes les années');
     setOptions('filter-workshop',(tables.ATELIERS||[]).map(a=>({value:a.id,label:a.Libelle||a.Code})),state.workshop,'Tous les ateliers');
-    setOptions('filter-person',(tables.COLLABORATEURS||[]).map(p=>({value:p.id,label:name('COLLABORATEURS',p.id)})),state.person,'Toutes les personnes');
+    setOptions('filter-person',(tables.COLLABORATEURS||[]).filter(p=>state.scope!=='team'||M.teamMembers([p],state.workshop).length).map(p=>({value:p.id,label:name('COLLABORATEURS',p.id)})),state.person,'Toutes les personnes');
     setOptions('filter-type',types.map(t=>({value:t,label:t})),state.type,'Tous les types');
     setOptions('filter-month',months.map((m,i)=>({value:i+1,label:m})),state.month,'Tous les mois');
     setOptions('filter-period',(tables.PERIODES||[]).map(p=>({value:p.id,label:p.Code+' · '+date(p.Date_debut)+' — '+date(p.Date_fin)})),state.period,'Toutes les périodes');
@@ -114,8 +122,29 @@
     parts.push(state.workshop?state.workshop.split('|').map(workshopShort).join(', '):'Tous les ateliers');
     parts.push(state.type?state.type.split('|').join(', '):'Tous les types');
     if(state.status)parts.push('États : '+state.status.split('|').join(', '));
+    if(state.scope==='team')parts.push('Activités de son équipe · tous ateliers organisateurs');
     if(state.person)parts.push('Personnes : '+state.person.split('|').map(id=>name('COLLABORATEURS',id)).join(', '));
     return parts.join(' · ');
+  }
+  function cooperationPanel(){
+    const period=lookups.PERIODES?.get(Number(state.period));
+    const base=M.filter(tables.ACTIVITES||[],{...state,scope:'',workshop:'',fromDate:period?.Date_debut,toDate:period?.Date_fin});
+    const edges=M.cooperations(base,tables.COLLABORATEURS||[]);
+    const selected=(tables.ATELIERS||[]).filter(w=>M.matches(w.id,state.workshop));
+    const counts=w=>({given:new Set(edges.filter(e=>String(e.from)===String(w.id)).flatMap(e=>e.rows.map(a=>a.id))).size,received:new Set(edges.filter(e=>String(e.to)===String(w.id)).flatMap(e=>e.rows.map(a=>a.id))).size});
+    const totals=selected.map(w=>({w,...counts(w)}));
+    const max=Math.max(1,...totals.flatMap(v=>[v.given,v.received]));
+    const bars=totals.map(v=>'<div class="cooperation-row"><strong>'+esc(v.w.Code)+'</strong><div>'+[['given','Appui apporté'],['received','Appui reçu']].map(([key,label])=>'<button class="cooperation-bar" data-cooperation-workshop="'+v.w.id+'" data-cooperation-direction="'+key+'" aria-label="'+esc(v.w.Code)+' : '+label+', '+v[key]+' activités"><span>'+label+'</span><i style="width:'+v[key]/max*100+'%" class="'+key+'"></i><b>'+v[key]+'</b></button>').join('')+'</div></div>').join('');
+    const unknown=base.filter(a=>[a.Referent_de_l_action,...M.list(a.Intervenants)].filter(Boolean).some(id=>!lookups.COLLABORATEURS?.get(Number(id))?.Rattachements)).length;
+    return '<div class="section-spacer">'+panel('Coopérations entre ateliers','Nombre d’activités · cliquer sur une barre pour voir les appuis',bars||empty('Aucun atelier','Modifier la sélection.'),'','Appui apporté : un membre de cet atelier participe à une activité organisée ailleurs. Appui reçu : un personnel extérieur participe à une activité de cet atelier. Chaque activité est comptée une fois par atelier, hors annulées. Les filtres de date, type, état et personne sont conservés ; le choix atelier désigne ici les ateliers à observer. '+unknown+' activité(s) avec au moins un rattachement absent. Les projets DT et nationaux ne sont pas identifiés à ce stade.')+'</div>';
+  }
+  function openCooperation(workshop,direction){
+    const period=lookups.PERIODES?.get(Number(state.period));
+    const base=M.filter(tables.ACTIVITES||[],{...state,scope:'',workshop:'',fromDate:period?.Date_debut,toDate:period?.Date_fin});
+    const edges=M.cooperations(base,tables.COLLABORATEURS||[]).filter(e=>String(direction==='given'?e.from:e.to)===String(workshop));
+    const body=edges.map(e=>'<h3>'+esc(workshopShort(e.from))+' → '+esc(workshopShort(e.to))+' · '+e.rows.length+' activité(s)</h3>'+e.rows.map(a=>'<p><button class="text-button" data-cooperation-activity="'+a.id+'">'+esc(a.Titre_de_l_action||a.Identifiant_activite)+'</button> · '+esc(date(a.Type_d_activite==='Démarchage'?a.Date_contact:a.Date_prevue))+'</p>').join('')).join('');
+    openDrawer('<h2>'+esc(workshopShort(workshop))+' · '+(direction==='given'?'Appui apporté':'Appui reçu')+'</h2><p>Coopérations déclarées via les référents et intervenants. Une activité peut figurer sous plusieurs ateliers contributeurs.</p>'+ (body||'<p>Aucun appui identifié dans la sélection.</p>'),'Détail des coopérations');
+    document.querySelectorAll('[data-cooperation-activity]').forEach(b=>b.addEventListener('click',()=>openActivity(Number(b.dataset.cooperationActivity))));
   }
   function workshops(data){
     const s=M.summary(data);
@@ -123,24 +152,40 @@
     const singleType=state.type&&!state.type.includes('|');
     const planningYear=Number(state.year||state.planningYear);
     const planningRows=data.filter(a=>M.year(a)===planningYear);
-    const workshops=(tables.ATELIERS||[]).filter(w=>M.matches(w.id,state.workshop));
+    const workshops=(tables.ATELIERS||[]).filter(w=>state.scope==='team'?data.some(a=>a.Atelier_organisateur===w.id):M.matches(w.id,state.workshop));
     const cells=workshops.map(w=>({w,months:months.map((_,i)=>{const rs=planningRows.filter(a=>a.Atelier_organisateur===w.id&&M.activityDate(a)?.getUTCMonth()===i);return {rows:rs,value:state.metric==='hours'?M.summary(rs).plannedHours:rs.length}})}));
     const actualMax=Math.max(0,...cells.flatMap(c=>c.months.map(m=>m.value)));
     const max=Math.max(1,actualMax);
     const period=lookups.PERIODES?.get(Number(state.period));
     const inScope=i=>(!state.month||Number(state.month)===i+1)&&(!period||(Date.UTC(planningYear,i+1,0)/1000>=period.Date_debut&&Date.UTC(planningYear,i,1)/1000<=period.Date_fin));
-    const planning='<div class="table-wrap"><table class="planning"><thead><tr><th>Atelier organisateur</th>'+months.map(m=>'<th>'+m+'</th>').join('')+'</tr></thead><tbody>'+cells.map(c=>'<tr><td><strong>'+esc(c.w.Code)+'</strong><span class="sub">'+esc(c.w.Libelle)+'</span></td>'+c.months.map((m,i)=>!inScope(i)?'<td><span class="outside-selection" title="Mois hors des filtres de date">—</span></td>':'<td><button class="heat" data-month="'+(i+1)+'" data-planning-workshop="'+c.w.id+'" data-planning-year="'+planningYear+'" style="background:rgba(24,125,115,'+(m.value?(.08+m.value/max*.55):.025)+');color:'+(m.value/max>.7?'white':'#17323a')+'" aria-label="'+esc(c.w.Code)+' · '+months[i]+' '+planningYear+' : '+fmt(m.value,1)+(state.metric==='hours'?' heures prévues':' activités')+'">'+(m.value?fmt(m.value,1):'·')+'<small>'+(m.value?(state.metric==='hours'?'h prévues':'activité(s)'):'')+'</small></button></td>').join('')+'</tr>').join('')+'</tbody></table></div>';
+    const planning='<div class="table-wrap"><table class="planning"><thead><tr><th>Atelier organisateur</th>'+months.map(m=>'<th>'+m+'</th>').join('')+'</tr></thead><tbody>'+cells.map(c=>'<tr><td><strong>'+esc(c.w.Code)+'</strong><span class="sub">'+esc(c.w.Libelle)+'</span></td>'+c.months.map((m,i)=>!inScope(i)?'<td><span class="outside-selection" title="Mois hors des filtres de date">—</span></td>':'<td><button class="heat" data-month="'+(i+1)+'" data-planning-workshop="'+c.w.id+'" data-planning-year="'+planningYear+'" style="background:rgba(24,125,115,'+(m.value?(.08+m.value/max*.55):.025)+');color:'+(m.value/max>.7?'white':'#17323a')+'" aria-label="'+esc(c.w.Code)+' · '+months[i]+' '+planningYear+' : '+fmt(m.value,1)+(state.metric==='hours'?' heures d’activité':' activités')+'">'+(m.value?fmt(m.value,1):'·')+'<small>'+(m.value?(state.metric==='hours'?'h d’activité':'activité(s)'):'')+'</small></button></td>').join('')+'</tr>').join('')+'</tbody></table></div>';
     const yearOptions=[...new Set((tables.ACTIVITES||[]).map(M.year).filter(Boolean))].sort();
-    const controls='<div class="inline-controls">'+('<select id="planning-year" aria-label="Année du calendrier">'+yearOptions.map(y=>'<option '+(y===planningYear?'selected':'')+'>'+y+'</option>').join('')+'</select>')+'<select id="planning-metric" aria-label="Indicateur du calendrier"><option value="hours" '+(state.metric==='hours'?'selected':'')+'>Heures prévues</option><option value="count" '+(state.metric==='count'?'selected':'')+'>Nombre d’activités</option></select></div>';
+    const controls='<div class="inline-controls">'+('<select id="planning-year" aria-label="Année du calendrier">'+yearOptions.map(y=>'<option '+(y===planningYear?'selected':'')+'>'+y+'</option>').join('')+'</select>')+'<select id="planning-metric" aria-label="Indicateur du calendrier"><option value="hours" '+(state.metric==='hours'?'selected':'')+'>Durée des activités</option><option value="count" '+(state.metric==='count'?'selected':'')+'>Nombre d’activités</option></select></div>';
     const staffCounts=new Map();
     data.forEach(a=>{const ids=new Set([...M.list(a.Intervenants),...(a.Referent_de_l_action?[a.Referent_de_l_action]:[])]);ids.forEach(id=>{if(!staffCounts.has(id))staffCounts.set(id,[]);staffCounts.get(id).push(a)})});
     const staff=[...staffCounts].map(([id,rs])=>({id,rs})).sort((a,b)=>b.rs.length-a.rs.length);
-    const singleWorkshop=!!state.workshop&&!state.workshop.includes('|');
+    const teamMode=state.scope==='team';
+    const teamIds=new Set(M.teamMembers(tables.COLLABORATEURS||[],state.workshop));
+    const teamStaff=staff.filter(p=>teamIds.has(String(p.id)));
+    const otherStaff=staff.filter(p=>!teamIds.has(String(p.id)));
+    const selectionKey=JSON.stringify([state.year,state.workshop,state.scope,state.person,state.type,state.status,state.month,state.period]);
+    if(staffSelection!==selectionKey){staffPages={};staffSearch='';staffOthersOpen=false;staffSelection=selectionKey}
+    const normalize=v=>String(v).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('fr');
+    const staffTable=(items,key)=>{
+      const found=items.filter(p=>normalize(name('COLLABORATEURS',p.id)).includes(normalize(staffSearch.trim())));
+      const pages=Math.max(1,Math.ceil(found.length/10));
+      const page=Math.min(staffPages[key]||1,pages);staffPages[key]=page;
+      const shown=found.slice((page-1)*10,page*10);
+      const table=shown.length?'<div class="table-wrap"><table><thead><tr><th>Personne</th><th>Rattachement</th><th class="num">Activités</th></tr></thead><tbody>'+shown.map(p=>'<tr><td><button class="text-button" data-person="'+p.id+'">'+esc(name('COLLABORATEURS',p.id))+'</button></td><td>'+esc(workshopShort(lookups.COLLABORATEURS?.get(p.id)?.Rattachements))+'</td><td class="num">'+p.rs.length+'</td></tr>').join('')+'</tbody></table></div>':empty(staffSearch?'Aucun nom correspondant':'Aucune personne renseignée','Modifier la recherche ou les filtres.');
+      return table+'<div class="pagination"><span>'+found.length+' personne(s)'+(staffSearch?' sur '+items.length:'')+'</span>'+(pages>1?'<div>Page '+page+' / '+pages+' <button type="button" data-staff-page="'+key+'" data-step="-1" '+(page===1?'disabled':'')+'>Précédentes</button><button type="button" data-staff-page="'+key+'" data-step="1" '+(page===pages?'disabled':'')+'>Voir les suivantes</button></div>':'')+'</div>';
+    };
+    const staffBody='<div class="table-toolbar"><input class="search" id="staff-search" type="search" aria-label="Rechercher une personne mobilisée" placeholder="Rechercher une personne…" value="'+esc(staffSearch)+'"></div>'+(teamMode?'<h3>Membres de l’équipe · '+teamStaff.length+'</h3>'+staffTable(teamStaff,'team')+'<details id="staff-others" '+(staffOthersOpen||staffSearch?'open':'')+'><summary>Autres personnes associées · '+otherStaff.length+'</summary>'+staffTable(otherStaff,'others')+'</details>':staffTable(staff,'all'));
+    const singleWorkshop=state.scope!=='team'&&!!state.workshop&&!state.workshop.includes('|');
     const volumePanel=singleWorkshop?panel('La répartition des activités de cet atelier','Heures prévues par type · hors annulées',basicBars(types.map(label=>({label,value:M.summary(data.filter(a=>a.Type_d_activite===label)).plannedHours})))):panel('Volumes d’activité par atelier','Heures prévues · atelier organisateur',legend()+workshopBars(data,'hours'));
-    return '<div class="selection-context"><strong>Sélection affichée</strong><span>'+scope+'</span></div><div class="kpis">'+kpi('Activités sélectionnées',s.total,'','Activités de la sélection ci-dessus',true)+kpi('Heures prévues',fmt(s.plannedHours,1),'h','Pour la sélection ci-dessus · hors annulées · '+s.missingPlannedDuration+' durée(s) absente(s)')+kpi('Durée moyenne réalisée',singleType?fmt(s.averageDuration,1):'—',singleType?'h':'',singleType?esc(state.type)+' · '+s.durationCount+'/'+s.done+' durées renseignées':'Sélectionner un seul type pour lire une moyenne pertinente')+kpi('Personnes mobilisées',staff.length,'','Personnes associées aux activités retenues, y compris celles d’autres ateliers')+'</div>'+
-      '<div class="callout warn"><strong>Durées d’activité renseignées.</strong> Les temps de préparation et de coordination par personne ainsi que la capacité disponible ne sont pas renseignés dans la structure actuelle. Le calendrier place chaque activité au mois de sa première date.</div>'+
+    return '<div class="selection-context"><strong>Sélection affichée</strong><span>'+scope+'</span></div><div class="kpis">'+kpi('Activités sélectionnées',s.total,'','Activités de la sélection ci-dessus',true)+kpi(teamMode?'Durée des activités concernées':'Heures prévues des activités',fmt(s.plannedHours,1),'h',(teamMode?'Durée complète des activités, sans attribution par personne':'Activités organisées par les ateliers sélectionnés')+' · hors annulées · '+s.missingPlannedDuration+' durée(s) absente(s)')+kpi('Durée moyenne réalisée',singleType?fmt(s.averageDuration,1):'—',singleType?'h':'',singleType?esc(state.type)+' · '+s.durationCount+'/'+s.done+' durées renseignées':'Sélectionner un seul type pour lire une moyenne pertinente')+kpi(teamMode?'Membres de l’équipe mobilisés':'Personnes mobilisées',teamMode?teamStaff.length:staff.length,'',teamMode?otherStaff.length+' autre(s) personne(s) associée(s), présentée(s) séparément':'Référents et intervenants, tous rattachements confondus')+'</div>'+
+      (teamMode?'<div class="callout"><strong>Activités impliquant l’équipe de '+esc(workshopShort(state.workshop))+'.</strong> Elles peuvent être organisées par d’autres ateliers. Les heures additionnent la durée complète de chaque activité une seule fois ; elles ne mesurent pas le temps de travail de l’équipe.</div>':'')+'<div class="callout warn"><strong>Durées d’activité renseignées.</strong> Les temps de préparation et de coordination par personne ainsi que la capacité disponible ne sont pas renseignés dans la structure actuelle. Le calendrier place chaque activité au mois de sa première date.</div>'+
       '<section class="panel"><div class="panel-head"><div><h2>La programmation au fil des mois</h2><p>Calendrier '+planningYear+(state.year?' · même année que le filtre global':' · les indicateurs ci-dessus couvrent toutes les années')+' · cliquer sur une case pour ouvrir les activités</p></div>'+controls+'</div>'+planning+'<div class="panel-foot"><div class="heat-legend"><span>Faible volume</span><i></i><span>Volume élevé</span></div>Teinte relative au maximum affiché ('+fmt(actualMax,1)+(state.metric==='hours'?' h':' activités')+'), sans seuil de surcharge. Un tiret indique un mois hors sélection. '+s.undated+' activité(s) sans date dans la sélection globale. Les heures des activités annulées sont exclues.</div></section>'+
-      '<div class="grid-equal section-spacer workshop-panels">'+volumePanel+panel('Qui est mobilisé ?','Référents et intervenants des activités sélectionnées',staff.length?'<div class="table-wrap"><table><thead><tr><th>Personne</th><th>Rattachement</th><th class="num">Activités</th></tr></thead><tbody>'+staff.map(p=>'<tr><td><button class="text-button" data-person="'+p.id+'">'+esc(name('COLLABORATEURS',p.id))+'</button></td><td>'+esc(workshopShort(lookups.COLLABORATEURS?.get(p.id)?.Rattachements))+'</td><td class="num">'+p.rs.length+'</td></tr>').join('')+'</tbody></table></div>':empty('Aucune personne renseignée','Compléter les référents et les intervenants.'),'','Une participation à une activité n’indique pas le nombre d’heures travaillées par la personne.')+'</div>';
+      '<div class="grid-equal section-spacer workshop-panels">'+volumePanel+panel('Qui est mobilisé ? · '+staff.length+' personnes','Référents et intervenants des activités sélectionnées',staffBody,'','Tri par nombre d’activités décroissant. Ce nombre ne mesure pas le temps de travail individuel.')+'</div>'+cooperationPanel();
   }
   function partners(data){
     const ids=new Set(data.flatMap(a=>M.list(a.Partenaires)));
@@ -149,25 +194,67 @@
     const categories=new Map();
     used.forEach(p=>{const key=p.Categorie||'À catégoriser';if(!categories.has(key))categories.set(key,new Set());data.filter(a=>M.list(a.Partenaires).includes(p.id)).forEach(a=>categories.get(key).add(a.id))});
     const bars=[...categories].map(([label,ids])=>({label,value:ids.size})).sort((a,b)=>b.value-a.value);
-    const partnerTable=used.length?'<div class="table-wrap"><table><thead><tr><th>Partenaire</th><th>Catégorie</th><th>Territoire déclaré</th><th>Ateliers organisateurs</th><th class="num">Activités</th></tr></thead><tbody>'+used.map(p=>{const rs=data.filter(a=>M.list(a.Partenaires).includes(p.id));return '<tr><td><strong>'+esc(p.Nom_partenaire)+'</strong></td><td>'+esc(p.Categorie||'À renseigner')+'</td><td>'+esc(p.Territoire||'—')+'</td><td>'+esc([...new Set(rs.map(a=>workshopShort(a.Atelier_organisateur)))].join(', '))+'</td><td class="num">'+rs.length+'</td></tr>'}).join('')+'</tbody></table></div>':empty('Le référentiel reste à alimenter','Associer les partenaires aux activités permettra de lire les relations territoriales.');
+    const partnerKey=JSON.stringify(data.map(a=>a.id));
+    if(partnerSelection!==partnerKey){partnerSelection=partnerKey;partnerSearch='';partnerPage=1}
+    const normalizePartner=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('fr');
+    const foundPartners=used.filter(p=>normalizePartner(p.Nom_partenaire).includes(normalizePartner(partnerSearch.trim()))).sort((a,b)=>String(a.Nom_partenaire||'').localeCompare(String(b.Nom_partenaire||''),'fr'));
+    const partnerPages=Math.max(1,Math.ceil(foundPartners.length/10));partnerPage=Math.min(partnerPage,partnerPages);
+    const shownPartners=foundPartners.slice((partnerPage-1)*10,partnerPage*10);
+    const partnerTools='<div class="table-toolbar"><input id="partner-search" class="search" type="search" placeholder="Rechercher un organisme…" aria-label="Rechercher un organisme associé" value="'+esc(partnerSearch)+'"></div>';
+    const partnerPagination='<div class="pagination"><span>'+foundPartners.length+' organisme(s)'+(partnerSearch?' sur '+used.length:'')+'</span>'+(partnerPages>1?'<div>Page '+partnerPage+' / '+partnerPages+' <button type="button" id="partner-prev" '+(partnerPage===1?'disabled':'')+'>Précédents</button><button type="button" id="partner-next" '+(partnerPage===partnerPages?'disabled':'')+'>Suivants</button></div>':'')+'</div>';
+    const partnerTable=shownPartners.length?'<div class="table-wrap"><table><thead><tr><th>Partenaire</th><th>Catégorie</th><th>Territoire déclaré</th><th>Ateliers organisateurs</th><th class="num">Activités</th></tr></thead><tbody>'+shownPartners.map(p=>{const rs=data.filter(a=>M.list(a.Partenaires).includes(p.id));return '<tr><td><strong>'+esc(p.Nom_partenaire)+'</strong></td><td>'+esc(p.Categorie||'À renseigner')+'</td><td>'+esc(p.Territoire||'—')+'</td><td>'+esc([...new Set(rs.map(a=>workshopShort(a.Atelier_organisateur)))].join(', '))+'</td><td class="num">'+rs.length+'</td></tr>'}).join('')+'</tbody></table></div>':empty(partnerSearch?'Aucun organisme correspondant':'Aucun organisme associé',partnerSearch?'Modifier la recherche.':'Associer les partenaires aux activités permettra de lire les relations territoriales.');
     const categoriesAll=[...new Set(used.map(p=>p.Categorie||'À catégoriser'))];
-    const workshopTable=categoriesAll.length?'<div class="table-wrap"><table><thead><tr><th>Atelier</th>'+categoriesAll.map(c=>'<th class="num">'+esc(c)+'</th>').join('')+'</tr></thead><tbody>'+(tables.ATELIERS||[]).filter(w=>M.matches(w.id,state.workshop)).map(w=>'<tr><td>'+esc(w.Code)+'</td>'+categoriesAll.map(c=>{const partnerIds=used.filter(p=>(p.Categorie||'À catégoriser')===c).map(p=>p.id);const n=data.filter(a=>a.Atelier_organisateur===w.id&&M.list(a.Partenaires).some(id=>partnerIds.includes(id))).length;return '<td class="num">'+(n||'—')+'</td>'}).join('')+'</tr>').join('')+'</tbody></table></div>':'<div class="chart-empty">Aucune catégorie renseignée.</div>';
+    const workshopTable=categoriesAll.length?'<div class="table-wrap"><table class="matrix partner-matrix"><thead><tr><th>Atelier</th>'+categoriesAll.map(c=>'<th>'+esc(c)+'</th>').join('')+'</tr></thead><tbody>'+(tables.ATELIERS||[]).filter(w=>M.matches(w.id,state.workshop)).map(w=>{
+      const activities=data.filter(a=>a.Atelier_organisateur===w.id);
+      return '<tr><td><strong>'+esc(w.Code)+'</strong><span class="sub">'+activities.length+' activité(s)</span></td>'+categoriesAll.map(c=>{
+        const partnerIds=used.filter(p=>(p.Categorie||'À catégoriser')===c).map(p=>p.id);
+        const count=activities.filter(a=>M.list(a.Partenaires).some(id=>partnerIds.includes(id))).length;
+        const ratio=activities.length?count/activities.length:0;
+        return '<td><button class="heat" data-partner-workshop="'+w.id+'" data-partner-category="'+esc(c)+'" '+(!count?'disabled':'')+' style="background:rgba(24,125,115,'+(count?.08+ratio*.75:.025)+');color:'+(ratio>.65?'white':'#17323a')+'" aria-label="'+esc(w.Code)+' · '+esc(c)+' : '+count+' activités sur '+activities.length+'" title="'+count+' activité(s) sur '+activities.length+'">'+(activities.length?Math.round(ratio*100)+' %':'—')+'<small>'+count+' activité(s)</small></button></td>';
+      }).join('')+'</tr>';
+    }).join('')+'</tbody></table></div><div class="panel-foot">Couleur selon la part des activités de chaque atelier associées à la catégorie : de 0 à 100 %. Le total inclut les activités sans partenaire renseigné. Une activité peut apparaître dans plusieurs catégories ; les pourcentages ne s’additionnent pas. Une absence peut refléter une saisie incomplète ou les besoins locaux.</div>':'<div class="chart-empty">Aucune catégorie renseignée.</div>';
+    const palette=['#187d73','#c08732','#658bb5','#9a639c','#ab653f','#66733e','#bd5779','#3c829c','#7c6dbe','#76766b','#c0a45c'];
+    const categoryColor=c=>palette[[...new Set((tables.PARTENAIRES||[]).map(p=>p.Categorie||'À catégoriser'))].sort().indexOf(c)%palette.length];
+    const profiles='<div class="legend">'+categoriesAll.map(c=>'<span><i class="dot" style="background:'+categoryColor(c)+'"></i>'+esc(c)+'</span>').join('')+'</div>'+(tables.ATELIERS||[]).filter(w=>M.matches(w.id,state.workshop)).map(w=>{
+      const activities=data.filter(a=>a.Atelier_organisateur===w.id);
+      const counts=categoriesAll.map(c=>({category:c,count:activities.filter(a=>M.list(a.Partenaires).some(id=>used.some(p=>p.id===id&&(p.Categorie||'À catégoriser')===c))).length}));
+      const total=counts.reduce((n,c)=>n+c.count,0);
+      const dominant=counts.filter(c=>c.count).sort((a,b)=>b.count-a.count)[0];
+      return '<div class="partner-profile"><strong>'+esc(w.Code)+'</strong><div><div class="partner-stack">'+(total?counts.filter(c=>c.count).map(c=>'<button data-partner-workshop="'+w.id+'" data-partner-category="'+esc(c.category)+'" style="flex:'+c.count+';background:'+categoryColor(c.category)+'" title="'+esc(c.category)+' : '+c.count+' activité(s), '+Math.round(c.count/total*100)+' % des associations" aria-label="'+esc(w.Code)+' · '+esc(c.category)+' : '+c.count+' activités">'+(c.count/total>.12?Math.round(c.count/total*100)+' %':'')+'</button>').join(''):'<span>Aucun partenaire renseigné</span>')+'</div><small>'+(dominant?'Catégorie la plus représentée : '+esc(dominant.category):'Aucune catégorie')+'</small></div><span>'+activities.length+' activité(s)</span></div>';
+    }).join('')+'<div class="panel-foot">Chaque barre représente 100 % des associations activité–catégorie de l’atelier. Une activité liée à plusieurs catégories compte dans chacune. Les activités sans partenaire ne composent pas la barre. La carte de chaleur conserve la part sur l’ensemble des activités.</div>';
+    const chartSwitch='<div class="chart-switch" role="group" aria-label="Représentation des partenariats">'+[['profiles','Profils'],['heatmap','Carte de chaleur']].map(([key,label])=>'<button type="button" data-partner-chart="'+key+'" aria-pressed="'+(partnerChart===key)+'">'+label+'</button>').join('')+'</div>';
     return '<div class="kpis">'+kpi('Partenaires distincts',used.length,'','Sur les activités sélectionnées',true)+kpi('Activités avec partenaires',s.total-s.withoutPartner,'',percent(s.total-s.withoutPartner,s.total)+' de la sélection')+kpi('Catégories représentées',categoriesAll.length,'','Selon le référentiel PARTENAIRES')+kpi('Sans partenaire associé',s.withoutPartner,'','Peut être normal selon le type d’activité')+'</div>'+
       '<div class="callout"><strong>Lecture des partenariats.</strong> Le commanditaire (champ Organisme) et le financeur ne sont pas automatiquement assimilés aux partenaires associés. Une activité impliquant plusieurs catégories apparaît dans chacune : les colonnes ne sont pas additives.</div>'+
-      '<div class="grid-equal">'+panel('Avec quels types de partenaires ?','Nombre d’activités par catégorie',basicBars(bars))+panel('Les partenariats selon les ateliers','Nombre d’activités · atelier organisateur',workshopTable)+'</div>'+
-      '<section class="panel"><div class="panel-head"><div><h2>Les organismes associés</h2><p>Un même organisme est compté une seule fois parmi les partenaires distincts.</p></div></div>'+partnerTable+'</section>';
+      '<div class="'+(state.workshop&&!state.workshop.includes('|')?'':'partner-panels')+'">'+panel('Avec quels types de partenaires ?','Nombre d’activités par catégorie',basicBars(bars))+(state.workshop&&!state.workshop.includes('|')?'':panel('Les profils de partenariat par atelier',partnerChart==='profiles'?'Répartition des associations par catégorie · cliquer sur une portion pour explorer':'Part des activités par catégorie · cliquer sur une case pour explorer',partnerChart==='profiles'?profiles:workshopTable,chartSwitch))+'</div>'+
+      '<section class="panel"><div class="panel-head"><div><h2>Les organismes associés · '+used.length+'</h2><p>Un même organisme est compté une seule fois parmi les partenaires distincts.</p></div></div>'+partnerTools+partnerTable+partnerPagination+'</section>';
   }
   function themes(data){
     const themes=(tables.THEMATIQUES||[]).filter(t=>!state.theme||String(t.id)===state.theme);
-    const workshops=(tables.ATELIERS||[]).filter(w=>M.matches(w.id,state.workshop));
+    const workshops=(tables.ATELIERS||[]).filter(w=>state.scope==='team'?data.some(a=>a.Atelier_organisateur===w.id):M.matches(w.id,state.workshop));
     const max=Math.max(1,...workshops.flatMap(w=>themes.map(t=>data.filter(a=>a.Atelier_organisateur===w.id&&a.Thematique===t.id).length)));
-    const matrix='<div class="table-wrap"><table class="matrix"><thead><tr><th>Atelier</th>'+themes.map(t=>'<th>'+esc(t.Libelle)+'</th>').join('')+'</tr></thead><tbody>'+workshops.map(w=>'<tr><td><strong>'+esc(w.Code)+'</strong></td>'+themes.map(t=>{const n=data.filter(a=>a.Atelier_organisateur===w.id&&a.Thematique===t.id).length;return '<td><button class="heat" data-theme="'+t.id+'" data-theme-workshop="'+w.id+'" aria-label="'+esc(w.Code)+' · '+esc(t.Libelle)+' : '+n+' activités" style="background:rgba(24,125,115,'+(n?.06+n/max*.55:.025)+');color:'+(n/max>.7?'white':'#17323a')+'">'+(n||'·')+'</button></td>'}).join('')+'</tr>').join('')+'</tbody></table></div>';
+    const matrix='<div class="table-wrap"><table class="matrix partner-matrix"><thead><tr><th>Atelier</th>'+themes.map(t=>'<th>'+esc(t.Libelle)+'</th>').join('')+'</tr></thead><tbody>'+workshops.map(w=>{
+      const rs=data.filter(a=>a.Atelier_organisateur===w.id);
+      return '<tr><td><strong>'+esc(w.Code)+'</strong><span class="sub">'+rs.length+' activité(s)</span></td>'+themes.map(t=>{
+        const n=rs.filter(a=>a.Thematique===t.id).length,ratio=rs.length?n/rs.length:0;
+        return '<td><button class="heat" data-theme="'+t.id+'" data-theme-workshop="'+w.id+'" '+(!n?'disabled':'')+' title="'+n+' activité(s) sur '+rs.length+'" aria-label="'+esc(w.Code)+' · '+esc(t.Libelle)+' : '+n+' activités sur '+rs.length+'" style="background:rgba(24,125,115,'+(n?.08+ratio*.75:.025)+');color:'+(ratio>.65?'white':'#17323a')+'">'+(rs.length?Math.round(ratio*100)+' %':'—')+'<small>'+n+' activité(s)</small></button></td>';
+      }).join('')+'</tr>';
+    }).join('')+'</tbody></table></div>';
+    const themePalette=['#187d73','#c08732','#658bb5','#9a639c','#ab653f','#66733e','#bd5779','#3c829c','#7c6dbe'];
+    const themeColor=id=>themePalette[(tables.THEMATIQUES||[]).findIndex(t=>t.id===id)%themePalette.length];
+    const profiles='<div class="legend">'+themes.map(t=>'<span><i class="dot" style="background:'+themeColor(t.id)+'"></i>'+esc(t.Libelle)+'</span>').join('')+'<span><i class="dot" style="background:#c7ceca"></i>Sans thématique</span></div>'+workshops.map(w=>{
+      const rs=data.filter(a=>a.Atelier_organisateur===w.id);
+      const counts=themes.map(t=>({id:t.id,label:t.Libelle,n:rs.filter(a=>a.Thematique===t.id).length}));
+      const missing=rs.filter(a=>!a.Thematique).length;
+      const dominant=counts.filter(t=>t.n).sort((a,b)=>b.n-a.n)[0];
+      return '<div class="partner-profile"><strong>'+esc(w.Code)+'</strong><div><div class="partner-stack">'+counts.filter(t=>t.n).map(t=>'<button data-theme="'+t.id+'" data-theme-workshop="'+w.id+'" style="flex:'+t.n+';background:'+themeColor(t.id)+'" title="'+esc(t.label)+' : '+t.n+' activités, '+Math.round(t.n/rs.length*100)+' %" aria-label="'+esc(w.Code)+' · '+esc(t.label)+' : '+t.n+' activités">'+(t.n/rs.length>.12?Math.round(t.n/rs.length*100)+' %':'')+'</button>').join('')+(missing?'<span style="flex:'+missing+';background:#c7ceca" title="'+missing+' activités sans thématique">'+Math.round(missing/rs.length*100)+' %</span>':'')+(!rs.length?'<span>Aucune activité</span>':'')+'</div><small>'+(dominant?'Thématique la plus représentée : '+esc(dominant.label):'Aucune thématique renseignée')+'</small></div><span>'+rs.length+' activité(s)</span></div>';
+    }).join('');
+    const chartSwitch='<div class="chart-switch" role="group" aria-label="Représentation des thématiques">'+[['profiles','Profils'],['heatmap','Carte de chaleur']].map(([key,label])=>'<button type="button" data-theme-chart="'+key+'" aria-pressed="'+(themeChart===key)+'">'+label+'</button>').join('')+'</div>';
     const audiences=new Map();
     data.forEach(a=>M.list(a.Cibles).forEach(c=>audiences.set(c,(audiences.get(c)||0)+1)));
     const themeGroups=M.group(data.filter(a=>a.Thematique),'Thematique').sort((a,b)=>b.total-a.total);
     const s=M.summary(data);
     return '<div class="kpis">'+kpi('Thématiques présentes',themeGroups.length,'','Thématiques principales renseignées',true)+kpi('Activités thématisées',s.total-s.withoutTheme,'',percent(s.total-s.withoutTheme,s.total)+' de la sélection')+kpi('Publics représentés',audiences.size,'','Une activité peut viser plusieurs publics')+kpi('Sans thématique',s.withoutTheme,'','À qualifier lorsque pertinent')+'</div>'+
-      '<section class="panel"><div class="panel-head"><div><h2>Les thématiques à l’échelle du territoire</h2><p>Nombre d’activités par atelier et thématique principale · cliquer pour explorer</p></div></div>'+matrix+'<div class="panel-foot">Une faible présence n’indique pas à elle seule un besoin non couvert : rapprocher ces données des besoins locaux.</div></section>'+
+      (state.workshop&&!state.workshop.includes('|')?'':panel('Les profils thématiques par atelier','Part des activités par thématique principale · cliquer pour explorer',themeChart==='profiles'?profiles:matrix,chartSwitch,'Pourcentages calculés sur toutes les activités de chaque atelier, y compris celles sans thématique. Une faible présence peut refléter les besoins locaux ou une saisie incomplète.'))+
       '<div class="grid-equal section-spacer">'+panel('Répartition des thématiques','Activités enregistrées',basicBars(themeGroups.map(g=>({label:name('THEMATIQUES',g.key),value:g.total}))))+panel('Les publics visés','Nombre d’activités · réponses multiples',basicBars([...audiences].map(([label,value])=>({label,value})).sort((a,b)=>b.value-a.value)),'','Les publics visés ne sont pas des effectifs de participants.')+'</div>';
   }
   function activities(data){
@@ -195,18 +282,33 @@
     $('refresh').textContent=embedded?'Actualiser':source==='local'?'Recharger l’aperçu':'Recharger la démonstration';
     $('refresh').title=embedded?'Relire les tables Grist maintenant. Les filtres sont conservés.':source==='local'?'Relire l’extrait local enregistré ; ce bouton ne récupère pas les modifications récentes de Grist.':'Recharger le jeu de démonstration, sans connexion au document Grist.';
     $('source-notice').hidden=embedded;
-    $('source-notice').textContent=source==='local'?'APERÇU LOCAL — Données de votre document au '+new Date(snapshotAt).toLocaleString('fr-FR')+'. Aucune modification possible.':'DÉMONSTRATION — Données entièrement synthétiques. Pour lire votre document, ouvrir cette URL dans un widget personnalisé Grist.';
+    $('source-notice').textContent=source==='local'&&simulation?'SIMULATION — Jeu fictif enrichi pour tester les vues. Aucune modification de Grist.':source==='local'?'APERÇU LOCAL — Données de votre document au '+new Date(snapshotAt).toLocaleString('fr-FR')+'. Aucune modification possible.':'DÉMONSTRATION — Données entièrement synthétiques. Pour lire votre document, ouvrir cette URL dans un widget personnalisé Grist.';
     $('source-notice').classList.remove('error');
-    $('data-footer').textContent=(embedded?'Grist · actualisé le ':source==='local'?'Extrait Grist du ':'Données synthétiques · ')+new Date(snapshotAt).toLocaleDateString('fr-FR')+' · lecture seule · v0.3';
+    $('data-footer').textContent=(embedded?'Grist · actualisé le ':source==='local'?'Extrait Grist du ':'Données synthétiques · ')+new Date(snapshotAt).toLocaleDateString('fr-FR')+' · lecture seule · v0.4';
     writeRoute();
     bindContent();
   }
   function bindContent(){
+    document.querySelectorAll('[data-theme-chart]').forEach(b=>b.addEventListener('click',()=>{themeChart=b.dataset.themeChart;render()}));
+    $('partner-search')?.addEventListener('input',e=>{partnerSearch=e.target.value;partnerPage=1;const cursor=e.target.selectionStart;render();$('partner-search').focus({preventScroll:true});if(cursor!==null)$('partner-search').setSelectionRange(cursor,cursor)});
+    [['partner-prev',-1],['partner-next',1]].forEach(([id,step])=>$(id)?.addEventListener('click',()=>{partnerPage+=step;render();$('partner-search')?.focus({preventScroll:true})}));
+    document.querySelectorAll('[data-partner-chart]').forEach(b=>b.addEventListener('click',()=>{partnerChart=b.dataset.partnerChart;render()}));
+    document.querySelectorAll('[data-partner-category]').forEach(b=>b.addEventListener('click',()=>{
+      const category=b.dataset.partnerCategory,workshop=b.dataset.partnerWorkshop;
+      const ids=(tables.PARTENAIRES||[]).filter(p=>(p.Categorie||'À catégoriser')===category).map(p=>p.id);
+      const matches=rows().filter(a=>String(a.Atelier_organisateur)===workshop&&M.list(a.Partenaires).some(id=>ids.includes(id)));
+      openDrawer('<h2>'+esc(workshopShort(workshop))+' · '+esc(category)+'</h2><p>'+matches.length+' activité(s) associée(s) dans la sélection.</p>'+matches.map(a=>'<p><button class="text-button" data-partner-activity="'+a.id+'">'+esc(a.Titre_de_l_action||a.Identifiant_activite)+'</button></p>').join(''),'Activités par catégorie de partenaire');
+      document.querySelectorAll('[data-partner-activity]').forEach(button=>button.addEventListener('click',()=>openActivity(Number(button.dataset.partnerActivity))));
+    }));
+    $('staff-others')?.addEventListener('toggle',e=>{staffOthersOpen=e.target.open});
+    $('staff-search')?.addEventListener('input',e=>{staffSearch=e.target.value;staffPages={};const cursor=e.target.selectionStart;render();$('staff-search').focus();if(cursor!==null)$('staff-search').setSelectionRange(cursor,cursor)});
+    document.querySelectorAll('[data-staff-page]').forEach(b=>b.addEventListener('click',()=>{const key=b.dataset.staffPage;staffPages[key]=(staffPages[key]||1)+Number(b.dataset.step);render();$('staff-search')?.focus({preventScroll:true})}));
+    document.querySelectorAll('[data-cooperation-workshop]').forEach(b=>b.addEventListener('click',()=>openCooperation(b.dataset.cooperationWorkshop,b.dataset.cooperationDirection)));
     document.querySelectorAll('[data-explain]').forEach(b=>b.addEventListener('click',()=>explainIndicator(b.dataset.explain)));
     $('overview-metric')?.addEventListener('change',e=>{state.overviewMetric=e.target.value;render()});
     document.querySelectorAll('[data-activity]').forEach(b=>b.addEventListener('click',()=>openActivity(Number(b.dataset.activity))));
     document.querySelectorAll('[data-workshop]').forEach(b=>b.addEventListener('click',()=>{state.workshop=b.dataset.workshop;state.view='workshops';state.month='';state.theme='';state.page=1;populateFilters();render()}));
-    document.querySelectorAll('[data-month]').forEach(b=>b.addEventListener('click',()=>{state.month=b.dataset.month;state.workshop=b.dataset.planningWorkshop;state.year=b.dataset.planningYear;state.view='activities';state.page=1;populateFilters();render()}));
+    document.querySelectorAll('[data-month]').forEach(b=>b.addEventListener('click',()=>{state.month=b.dataset.month;if(state.scope!=='team')state.workshop=b.dataset.planningWorkshop;state.year=b.dataset.planningYear;state.view='activities';state.page=1;populateFilters();render()}));
     document.querySelectorAll('[data-theme]').forEach(b=>b.addEventListener('click',()=>{state.theme=b.dataset.theme;state.workshop=b.dataset.themeWorkshop;state.view='activities';state.page=1;populateFilters();render()}));
     document.querySelectorAll('[data-person]').forEach(b=>b.addEventListener('click',()=>{state.person=b.dataset.person;state.view='activities';state.page=1;populateFilters();render()}));
     $('planning-year')?.addEventListener('change',e=>{state.planningYear=e.target.value;state.year=e.target.value;state.page=1;populateFilters();render()});
@@ -318,11 +420,12 @@
   }
   async function init(){
     render();
+    $('filter-scope').addEventListener('change',e=>{state.scope=e.target.value;state.person='';state.page=1;populateFilters();render()});
     $('filters').addEventListener('submit',e=>e.preventDefault());
     ['year','month','period'].forEach(k=>$('filter-'+k).addEventListener('change',e=>{state[k]=e.target.value;state.page=1;render()}));
-    $('filters').addEventListener('change',e=>{if(!e.target.dataset.multi)return;const key=e.target.dataset.multi;state[key]=[...$('filter-'+key).querySelectorAll('input:checked')].map(i=>i.value).join('|');e.target.closest('details').querySelector('summary').textContent=state[key]?state[key].split('|').length+' sélection(s)':'Tous';state.page=1;render()});
+    $('filters').addEventListener('change',e=>{if(!e.target.dataset.multi)return;const key=e.target.dataset.multi;state[key]=[...$('filter-'+key).querySelectorAll('input:checked')].map(i=>i.value).join('|');e.target.closest('details').querySelector('summary').textContent=state[key]?state[key].split('|').length+' sélection(s)':'Tous';if(key==='workshop'){state.person='';populateFilters()}state.page=1;render()});
     $('filters').addEventListener('click',e=>{const key=e.target.dataset.filterClear;if(key){state[key]='';state.page=1;populateFilters();render()}});
-    $('reset').addEventListener('click',()=>{['year','workshop','person','type','status','theme','month','period','alerts','search'].forEach(k=>state[k]='');state.page=1;populateFilters();render()});
+    $('reset').addEventListener('click',()=>{['year','workshop','scope','person','type','status','theme','month','period','alerts','search'].forEach(k=>state[k]='');state.page=1;populateFilters();render()});
     $('navigation').addEventListener('click',e=>{const link=e.target.closest('[data-nav]');if(!link)return;e.preventDefault();state.view=link.dataset.nav;state.theme='';state.alerts='';state.search='';state.page=1;render();window.scrollTo(0,0)});
     document.addEventListener('click',e=>{const a=e.target.closest('a[href^="#view="]');if(a&&!a.dataset.nav){e.preventDefault();state.view=new URLSearchParams(a.hash.slice(1)).get('view');state.theme='';state.page=1;render()}});
     $('methodology').addEventListener('click',showDefinitions);$('definitions').addEventListener('click',showDefinitions);$('drawer-backdrop').addEventListener('click',closeDrawer);

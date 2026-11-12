@@ -61,3 +61,19 @@ test('le filtre personne inclut référent ou intervenant sans dupliquer une act
  assert.deepEqual(M.filter(rs,{person:'2|4'}).map(r=>r.id),[1,2,3]);
  assert.deepEqual(M.filter(rs,{person:'99'}),[]);
 });
+
+test('équipe : retrouve le travail hors atelier, sans inclure les collègues extérieurs seuls',()=>{
+ const people=[{id:1,Rattachements:8},{id:2,Rattachements:10}];
+ const teamIds=M.teamMembers(people,'8');
+ const activities=[{id:1,Atelier_organisateur:10,Referent_de_l_action:1},{id:2,Atelier_organisateur:8,Referent_de_l_action:2},{id:3,Atelier_organisateur:10,Intervenants:['L',1]}];
+ assert.deepEqual(M.filter(activities,{scope:'team',workshop:'8',teamIds}).map(a=>a.id),[1,3]);
+ assert.deepEqual(M.filter(activities,{workshop:'8'}).map(a=>a.id),[2]);
+ assert.equal(M.filter(activities,{scope:'team',teamIds:[]}).length,0);
+});
+
+test('coopérations : dédoublonne les personnes, exclut appuis internes, annulations et rattachements absents',()=>{
+ const people=[{id:1,Rattachements:8},{id:2,Rattachements:8},{id:3,Rattachements:10},{id:4}];
+ const rows=[{id:1,Atelier_organisateur:10,Referent_de_l_action:1,Intervenants:['L',1,2,3,4]},{id:2,Atelier_organisateur:8,Intervenants:['L',1,2]},{id:3,Atelier_organisateur:10,Referent_de_l_action:1,Etat_de_l_action:'Annulé'}];
+ const edges=M.cooperations(rows,people);
+ assert.equal(edges.length,1);assert.equal(edges[0].from,8);assert.equal(edges[0].to,10);assert.deepEqual(edges[0].rows.map(r=>r.id),[1]);
+});

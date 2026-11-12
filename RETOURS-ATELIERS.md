@@ -25,3 +25,18 @@ Une capacité disponible validée par personne et période constituerait un deux
 
 Aucune table ni donnée Grist n’a été modifiée au cours de cette revue. Les nouvelles tables et les modalités de saisie restent à concevoir avec l’utilisateur.
 
+
+
+## Clarification du mode équipe
+- Le volume horaire porte sur la durée complète des activités concernées, comptées une seule fois, même si plusieurs membres y participent.
+- En mode équipe, la carte personnes compte uniquement les membres rattachés à l’atelier sélectionné et présents dans les activités retenues.
+- Les autres référents/intervenants sont regroupés dans une section repliable distincte.
+- Aucun temps de travail individuel n’est déduit des durées d’activité.
+
+
+## Prototype coopérations
+Deux barres par atelier : appui apporté et reçu. Déduction via les rattachements des référents/intervenants et l’atelier organisateur. Comptage unique par activité et atelier, hors annulées. Le détail regroupe les activités par relation entre ateliers et ouvre leurs fiches. Les filtres temporels, type, état et personne sont conservés. L’atelier sélectionné cible l’observation des deux sens, indépendamment du mode atelier/équipe. Les rattachements absents et l’absence d’identification des projets territoriaux/nationaux sont signalés.
+
+
+## Liste des personnes compacte
+Liste limitée à 10 noms par page, recherche par nom insensible aux accents, total dans le titre et navigation précédent/suivant. En mode équipe, pagination distincte pour les membres et les autres personnes associées. La recherche ne change pas les indicateurs ni les filtres d’activité. Un changement de sélection réinitialise la recherche et les pages de la liste.
